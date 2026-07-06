@@ -14,19 +14,18 @@
   "use strict";
 
   /* ============================================================
-     ██████╗ ██████╗ ███╗   ██╗███████╗██╗ ██████╗
-    ██╔════╝██╔═══██╗████╗  ██║██╔════╝██║██╔════╝
-    ██║     ██║   ██║██╔██╗ ██║█████╗  ██║██║  ███╗
-    ██║     ██║   ██║██║╚██╗██║██╔══╝  ██║██║   ██║
-    ╚██████╗╚██████╔╝██║ ╚████║██║     ██║╚██████╔╝
-     ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝     ╚═╝ ╚═════╝
-
-     Change ONLY these two values per club page.
-     ISLAND must match the "Island" column in the clubs sheet exactly.
-     SHORT_NAME must match the "Short Name" column exactly.
+     CONFIG — read from window variables set in the Code Block:
+       window.BSF_ISLAND  — must match "Island" column exactly
+       window.BSF_SHORT   — must match "Short Name" column exactly
   ============================================================ */
-  const ISLAND     = "Sal";
-  const SHORT_NAME = "Palmeira";
+  const ISLAND     = window.BSF_ISLAND || "";
+  const SHORT_NAME = window.BSF_SHORT  || "";
+
+  if (!ISLAND || !SHORT_NAME) {
+    document.getElementById("bsf-club-root").innerHTML =
+      "<div class='bsf-club__error'>Club not configured. Set window.BSF_ISLAND and window.BSF_SHORT before loading this script.</div>";
+    return;
+  }
   /* ============================================================ */
 
   const N_RECENT = 8;
