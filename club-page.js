@@ -626,11 +626,7 @@
           ${kitSVG(kitAway1, kitAway2, "Away")}
         </div>
       </div>
-      <p style="font-size:10px;color:var(--muted);margin-top:12px;">
-        Kit colours are drawn from the sheet columns <strong>Kit Home Primary</strong>,
-        <strong>Kit Home Secondary</strong>, <strong>Kit Away Primary</strong>,
-        <strong>Kit Away Secondary</strong>. Add hex values there to update automatically.
-      </p>`;
+      `;
 
     /* Venue */
     const venueHTML = stadium
