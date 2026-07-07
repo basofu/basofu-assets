@@ -1400,8 +1400,8 @@ function renderKnockoutBracket(rounds) {
           <td>${r.logo ? `<img class="team-logo" src="${r.logo}" />` : ""}</td>
           <td class="team-name">
             ${(() => {
-              const pageUrl = (opts.clubPageMap || {})[norm(r.shortName || r.key)]
-                           || (opts.clubPageMap || {})[norm(r.fullName  || r.key)];
+              const pageUrl = clubPageMap[norm(r.shortName || r.key)]
+                           || clubPageMap[norm(r.fullName  || r.key)];
               return pageUrl
                 ? `<a href="${pageUrl}" class="team-link">${shortName}</a>`
                 : shortName;
@@ -1603,7 +1603,7 @@ function renderKnockoutBracket(rounds) {
         const now  = computeStandings(tableMatches);
         const prev = computePrevWeek(tableMatches);
 
-        html += renderStandingsTable(now, prev, { clubPageMap,
+        html += renderStandingsTable(now, prev, {
           liveMatches,
           showArrows: true,
           bucketType: bucket.type,
@@ -1641,7 +1641,7 @@ function renderKnockoutBracket(rounds) {
           const now  = computeStandings(matches);
           const prev = computePrevWeek(matches);
 
-          html += renderStandingsTable(now, prev, { clubPageMap,
+          html += renderStandingsTable(now, prev, {
             showArrows: true,
             bucketType: bucket.type,
             division: bucket.type === "division" ? bucketKey : ""
@@ -1682,7 +1682,7 @@ function renderKnockoutBracket(rounds) {
         const now  = computeStandings(matches);
         const prev = computePrevWeek(matches);
 
-        html += renderStandingsTable(now, prev, { clubPageMap,
+        html += renderStandingsTable(now, prev, {
           showArrows: true,
           bucketType: bucket.type,
           division: bucket.type === "division" ? bucketKey : ""
@@ -1735,6 +1735,7 @@ function renderKnockoutBracket(rounds) {
       const page = (c.page || c["Page"] || "").trim();
       if (key && page) clubPageMap[key] = page;
     });
+    console.log("[Basofu standings] clubPageMap:", clubPageMap);
 
     const regionRows = allRows.filter(r => norm(r.region) === norm(REGION));
 
