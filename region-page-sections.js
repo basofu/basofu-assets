@@ -130,27 +130,47 @@ function normSeason(val) {
   return s;
 }
 
-/* Group champions by competition for this region */
+/* ── CHAMPIONS ───────────────────────────────────────────── */
+/* Build list of competitions that have ever been played in this region
+   by scanning the results sheet — covers Campeonato, Taça, Supertaça,
+   Torneio de Abertura, etc. without hardcoding anything */
+const regionComps = new Set(
+  allRows
+    .filter(r => norm(r.region || r.league || "") === norm(REGION) ||
+                 norm(r.region || "") === norm(REGION))
+    .map(r => (r.league || r.competition || "").trim())
+    .filter(Boolean)
+);
+
+/* Group champions by competition from honours sheet */
 const champsByComp = {};
 (honoursData || []).forEach(r => {
-  const loc     = (r.location || r["Location"] || "").trim().toLowerCase();
-  const comp    = (r.competition || r["Competition"] || "").trim();
-  const winner  = (r.winner || r["Winner"] || "").trim();
-  const year    = normSeason(r.year || r["Year"] || "");
-  const skip    = new Set(["not known","not held","unknown","tbd","n/a",""]);
+  const loc    = (r.location || r["Location"] || "").trim().toLowerCase();
+  const comp   = (r.competition || r["Competition"] || "").trim();
+  const winner = (r.winner || r["Winner"] || "").trim();
+  const year   = normSeason(r.year || r["Year"] || "");
+  const skip   = new Set(["not known","not held","unknown","tbd","n/a",""]);
   if (skip.has(winner.toLowerCase())) return;
-  /* Include if location matches region OR competition mentions region */
   const regionLow = REGION.toLowerCase();
-  if (!loc.includes(regionLow) && !comp.toLowerCase().includes(regionLow)) return;
+  /* Match by location OR competition name containing region name
+     OR competition appears in the results sheet for this region */
+  if (!loc.includes(regionLow) &&
+      !comp.toLowerCase().includes(regionLow) &&
+      !regionComps.has(comp)) return;
   if (!champsByComp[comp]) champsByComp[comp] = [];
   champsByComp[comp].push({ year, winner });
 });
 
-/* Sort competitions: league first, then cups */
-const sortedComps = Object.keys(champsByComp).sort((a,b) => {
-  const score = s => /campeonato|liga regional/i.test(s) ? 0 : /ta[çc]a/i.test(s) ? 1 : 2;
-  return score(a) - score(b);
-});
+/* Sort competitions: Campeonato → Torneio → Taça → Supertaça → rest */
+const compOrder = s => {
+  const l = s.toLowerCase();
+  if (/campeonato|liga regional/i.test(l)) return 0;
+  if (/torneio/i.test(l))                  return 1;
+  if (/ta[çc]a/i.test(l))                  return 2;
+  if (/supertaça|supertaca|super.?ta/i.test(l)) return 3;
+  return 4;
+};
+const sortedComps = Object.keys(champsByComp).sort((a,b) => compOrder(a) - compOrder(b));
 
 const champHTML = sortedComps.length ? `
   <div class="bsf-region__section">
@@ -174,63 +194,164 @@ const champHTML = sortedComps.length ? `
   </div>` : "";
 
 /* ── MATCH CARD HTML ────────────────────────────────────── */
-function matchCard(m, type) {
-  const minute = type === "live" ? (() => {
-    const g = String(m.gp||"").trim();
-    return !isNaN(g) && g !== "" ? `${g}′` : "LIVE";
-  })() : "";
-
-  const hScore = type !== "upcoming" && m.hg !== null ? m.hg : "";
-  const aScore = type !== "upcoming" && m.ag !== null ? m.ag : "";
-
-  const hLogo  = m.homeLogo || clubLogoMap[norm(m.homeShort)] || "";
-  const aLogo  = m.awayLogo || clubLogoMap[norm(m.awayShort)] || "";
-  const hPage  = clubPageMap[norm(m.homeShort)] || "";
-  const aPage  = clubPageMap[norm(m.awayShort)] || "";
-
-  const hName = hPage
-    ? `<a href="${esc(hPage)}" class="bsf-region__card-team-link">${esc(m.homeShort)}</a>`
-    : esc(m.homeShort);
-  const aName = aPage
-    ? `<a href="${esc(aPage)}" class="bsf-region__card-team-link">${esc(m.awayShort)}</a>`
-    : esc(m.awayShort);
-
-  return `
-    <div class="bsf-region__card bsf-region__card--${type}">
-      <div class="bsf-region__card-meta">
-        ${type === "live" ? `<span class="bsf-region__live-dot"></span>` : ""}
-        ${esc(fmtDate(m.date))} · ${esc(m.league)}
-        ${minute ? `· <strong>${minute}</strong>` : ""}
-      </div>
-      <div class="bsf-region__card-match">
-        <div class="bsf-region__card-team">
-          ${hLogo ? `<img src="${esc(hLogo)}" class="bsf-region__card-logo" alt="">` : ""}
-          <span>${hName}</span>
-        </div>
-        <div class="bsf-region__card-score">${hScore !== "" ? hScore : "–"}</div>
-        <div class="bsf-region__card-vs">v</div>
-        <div class="bsf-region__card-score">${aScore !== "" ? aScore : "–"}</div>
-        <div class="bsf-region__card-team bsf-region__card-team--away">
-          ${aLogo ? `<img src="${esc(aLogo)}" class="bsf-region__card-logo" alt="">` : ""}
-          <span>${aName}</span>
-        </div>
-      </div>
-    </div>`;
+/* ── H2H COMPUTATION ─────────────────────────────────────── */
+function computeH2H(rows, homeTeam, awayTeam, count) {
+  count = count || 6;
+  homeTeam = (homeTeam || "").trim().toLowerCase();
+  awayTeam = (awayTeam || "").trim().toLowerCase();
+  const finished = rows.filter(r =>
+    r.hg !== null && r.ag !== null &&
+    ((norm(r.homeShort) === homeTeam && norm(r.awayShort) === awayTeam) ||
+     (norm(r.homeShort) === awayTeam && norm(r.awayShort) === homeTeam))
+  );
+  return finished
+    .map(r => ({ ...r, _d: toDate(r.date) }))
+    .filter(r => r._d)
+    .sort((a, b) => b._d - a._d)
+    .slice(0, count)
+    .reverse()
+    .map(r => {
+      const fromHome = norm(r.homeShort) === homeTeam;
+      const diff = fromHome ? (r.hg - r.ag) : (r.ag - r.hg);
+      return { diff, date: r.date };
+    });
 }
 
-function matchRow(title, id, matches, type) {
-  if (!matches.length) return "";
-  return `
-    <div class="bsf-region__section">
-      <div class="bsf-region__section-label">${title}</div>
+function renderH2HSVG(points, homeLabel) {
+  if (!points.length) return `<div style="font-size:11px;color:#999;">No head-to-head data.</div>`;
+  const w = 180, h = 80, pad = 8, baseY = Math.round(h / 2);
+  const maxAbs = Math.max(1, ...points.map(p => Math.abs(p.diff)));
+  const barW = Math.max(8, Math.floor((w - pad*2) / points.length) - 4);
+  const gap = 4;
+  const bars = points.map((p, i) => {
+    if (p.diff === 0) return "";
+    const x = pad + i * (barW + gap);
+    const barH = Math.round((Math.abs(p.diff) / maxAbs) * (baseY - pad));
+    const y = p.diff > 0 ? (baseY - barH) : baseY;
+    return `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="2" style="fill:#003893;"/>`;
+  }).join("");
+  const labels = points.map((p, i) => {
+    const x = pad + i*(barW+gap) + Math.floor(barW/2);
+    const y = p.diff >= 0 ? (baseY - 2) : (baseY + 12);
+    return `<text x="${x}" y="${y}" text-anchor="middle" font-size="10" fill="#333">${p.diff}</text>`;
+  }).join("");
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;">
+    <line x1="${pad}" y1="${baseY}" x2="${w-pad}" y2="${baseY}" stroke="#ccc"/>
+    ${bars}${labels}
+  </svg>`;
+}
+
+/* Shared tooltip for H2H hover */
+let _h2hTip = null;
+function getH2HTip() {
+  if (_h2hTip) return _h2hTip;
+  _h2hTip = document.createElement("div");
+  Object.assign(_h2hTip.style, {
+    position:"fixed", zIndex:"9999", pointerEvents:"none", display:"none",
+    background:"rgba(255,255,255,0.98)", border:"1px solid #ccc",
+    borderRadius:"8px", padding:"10px 12px", boxShadow:"0 2px 10px rgba(0,0,0,0.12)",
+    fontFamily:"'Inter',system-ui,sans-serif", fontSize:"12px", maxWidth:"220px"
+  });
+  document.body.appendChild(_h2hTip);
+  return _h2hTip;
+}
+
+function attachH2HHover(cardEl, points, homeLabel) {
+  cardEl.addEventListener("mouseenter", e => {
+    const tip = getH2HTip();
+    tip.innerHTML = `
+      <div style="font-weight:600;margin-bottom:4px;">Head-to-Head</div>
+      <div style="color:#888;font-size:10px;margin-bottom:8px;">(Goal diff for ${esc(homeLabel)})</div>
+      ${renderH2HSVG(points, homeLabel)}`;
+    tip.style.display = "block";
+    moveTip(e);
+  });
+  cardEl.addEventListener("mousemove", moveTip);
+  cardEl.addEventListener("mouseleave", () => { getH2HTip().style.display = "none"; });
+  function moveTip(e) {
+    const tip = getH2HTip();
+    tip.style.left = (e.clientX + 14) + "px";
+    tip.style.top  = (e.clientY + 14) + "px";
+  }
+}
+
+/* ── MATCH CARD ─────────────────────────────────────────── */
+function makeCard(m, type, allRows) {
+  const g   = String(m.gp || "").trim();
+  const min = type === "live" && !isNaN(g) && g !== "" ? `${g}′` : "";
+
+  const hg = type !== "upcoming" && m.hg !== null && m.hg !== undefined ? m.hg : null;
+  const ag = type !== "upcoming" && m.ag !== null && m.ag !== undefined ? m.ag : null;
+
+  const hLogo = m.homeLogo || clubLogoMap[norm(m.homeShort)] || "";
+  const aLogo = m.awayLogo || clubLogoMap[norm(m.awayShort)] || "";
+  const hPage = clubPageMap[norm(m.homeShort)] || "";
+  const aPage = clubPageMap[norm(m.awayShort)] || "";
+
+  const hLabel = m.homeShort || "";
+  const aLabel = m.awayShort || "";
+  const hName  = hPage ? `<a href="${esc(hPage)}" class="ko-team-name">${esc(hLabel)}</a>`
+                       : `<span class="ko-team-name">${esc(hLabel)}</span>`;
+  const aName  = aPage ? `<a href="${esc(aPage)}" class="ko-team-name">${esc(aLabel)}</a>`
+                       : `<span class="ko-team-name">${esc(aLabel)}</span>`;
+
+  const hWon = hg !== null && ag !== null && hg > ag;
+  const aWon = hg !== null && ag !== null && ag > hg;
+
+  const dateLine = `${esc(fmtDate(m.date))} · ${esc(m.league || "")}`;
+
+  const el = document.createElement("div");
+  el.className = "ko-match ko-animate";
+  el.style.cssText = "flex:0 0 auto;min-width:240px;max-width:260px;scroll-snap-align:start;cursor:default;";
+  el.innerHTML = `
+    <div class="ko-date">
+      ${type === "live" ? `<span class="bsf-region__live-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#C2A14A;margin-right:4px;animation:bsf-pulse 1.4s infinite;"></span>` : ""}
+      ${dateLine}${min ? ` · <strong>${min}</strong>` : ""}
     </div>
-    <div class="bsf-region__carousel-wrap">
-      <button class="bsf-region__carousel-btn" onclick="document.getElementById('${id}').scrollBy({left:-320,behavior:'smooth'})">◀</button>
-      <div class="bsf-region__carousel" id="${id}">
-        ${matches.map(m => matchCard(m, type)).join("")}
+    <div class="ko-team ${hWon ? "ko-winner" : aWon ? "ko-loser" : ""}">
+      <div class="ko-team-left">
+        ${hLogo ? `<img src="${esc(hLogo)}" class="ko-logo" alt="">` : ""}
+        ${hName}
       </div>
-      <button class="bsf-region__carousel-btn" onclick="document.getElementById('${id}').scrollBy({left:320,behavior:'smooth'})">▶</button>
+      <span class="ko-score">${hg !== null ? hg : ""}</span>
+    </div>
+    <div class="ko-team ${aWon ? "ko-winner" : hWon ? "ko-loser" : ""}">
+      <div class="ko-team-left">
+        ${aLogo ? `<img src="${esc(aLogo)}" class="ko-logo" alt="">` : ""}
+        ${aName}
+      </div>
+      <span class="ko-score">${ag !== null ? ag : ""}</span>
     </div>`;
+
+  /* H2H tooltip for upcoming matches */
+  if (type === "upcoming" && allRows) {
+    const pts = computeH2H(allRows, hLabel, aLabel, 6);
+    if (pts.length) attachH2HHover(el, pts, hLabel);
+  }
+
+  return el;
+}
+
+function matchRow(title, id, matches, type, allRows) {
+  if (!matches.length) return { html: "", els: [] };
+  const els = matches.map(m => makeCard(m, type, allRows));
+  return {
+    html: `
+      <div class="bsf-region__section">
+        <div class="bsf-region__section-label">${title}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">
+        <button class="bsf-region__carousel-btn"
+          onclick="document.getElementById('${id}').scrollBy({left:-280,behavior:'smooth'})">◀</button>
+        <div id="${id}"
+          style="display:flex;gap:1rem;overflow-x:auto;scroll-snap-type:x mandatory;scroll-behavior:smooth;padding-bottom:0.5rem;flex:1;min-width:0;">
+        </div>
+        <button class="bsf-region__carousel-btn"
+          onclick="document.getElementById('${id}').scrollBy({left:280,behavior:'smooth'})">▶</button>
+      </div>`,
+    id,
+    els
+  };
 }
 
 /* Sort and slice matches */
@@ -280,33 +401,26 @@ const newsHTML = newsItems.length ? `
   </div>` : "";
 
 /* ── ASSEMBLE PAGE ──────────────────────────────────────── */
-root.innerHTML = `
-  ${BIO ? `
-    <div class="bsf-region__bio">${BIO}</div>
-  ` : ""}
+/* Build DOM-based card rows first (so event listeners survive innerHTML) */
+const liveRow     = matchRow("Live",           `bsf-live-${REGION.replace(/\s/g,"-")}`,     live,     "live",     allRows);
+const upcomingRow = matchRow("Upcoming Games", `bsf-upcoming-${REGION.replace(/\s/g,"-")}`, upcoming, "upcoming", allRows);
+const recentRow   = matchRow("Recent Results", `bsf-recent-${REGION.replace(/\s/g,"-")}`,   recent,   "recent",   null);
 
-  ${live.length ? matchRow("Live", `bsf-live-${REGION.replace(/\s/g,"-")}`, live, "live") : ""}
-  ${upcoming.length ? matchRow("Upcoming", `bsf-upcoming-${REGION.replace(/\s/g,"-")}`, upcoming, "upcoming") : ""}
-  ${recent.length ? matchRow("Recent Results", `bsf-recent-${REGION.replace(/\s/g,"-")}`, recent, "recent") : ""}
+root.innerHTML = [
+  BIO ? `<div class="bsf-region__bio">${BIO}</div>` : "",
+  liveRow.html,
+  upcomingRow.html,
+  recentRow.html,
+  champHTML,
+  newsHTML,
+].filter(Boolean).join("\n");
 
-  ${champHTML}
-
-  ${newsHTML}
-
-  <div class="bsf-region__section">
-    <div class="bsf-region__section-label">Standings</div>
-  </div>
-  <div id="bsf-standings-outer">
-    <!-- Controls -->
-    <div id="basofu-controls" style="margin-bottom:1rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
-      <label>Season: <select id="basofu-season-select"></select></label>
-    </div>
-    <div id="basofu-competition-tabs" style="margin-bottom:1rem;"></div>
-    <div id="basofu-league-container" class="responsive-results">
-      <p style="opacity:0.7;">Loading standings…</p>
-    </div>
-  </div>
-`;
+/* Insert card elements into their carousel containers */
+[liveRow, upcomingRow, recentRow].forEach(row => {
+  if (!row.id || !row.els || !row.els.length) return;
+  const carousel = document.getElementById(row.id);
+  if (carousel) row.els.forEach(el => carousel.appendChild(el));
+});
 
 /* Standings loaded by separate region-standings.js script tag */
 
@@ -318,9 +432,10 @@ if (live.length) {
       const freshRows = fresh.map(normRow);
       const freshSeason = freshRows.filter(r => r.season === SEASON);
       const freshLive = freshSeason.filter(isLive).map(dated).filter(r=>r._d).sort((a,b)=>a._d-b._d).slice(0,20);
-      const el = document.getElementById(`bsf-live-${REGION.replace(/\s/g,"-")}`);
-      if (el && freshLive.length) {
-        el.innerHTML = freshLive.map(m => matchCard(m, "live")).join("");
+      const carousel = document.getElementById(`bsf-live-${REGION.replace(/\s/g,"-")}`);
+      if (carousel && freshLive.length) {
+        carousel.innerHTML = "";
+        freshLive.forEach(m => carousel.appendChild(makeCard(m, "live", null)));
       }
     } catch(e) {}
   }, 60000);
