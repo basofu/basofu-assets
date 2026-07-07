@@ -296,23 +296,66 @@ function isGroupKnockoutCompetition(compName) {
   }
 
   /* ============================================================
-     TSV LOADER
+     DATA LOADER — via Cloudflare Worker (window.BASOFU)
   ============================================================ */
 
-  async function fetchResults() {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=tsv&gid=${GID}`;
-    const raw = await fetch(url).then(r => r.text());
-    const lines = raw.trim().split("\n");
-    const headers = lines[0].split("\t").map(h => h.trim());
-
-    return lines.slice(1).map(line => {
-      const cols = line.split("\t");
-      const r = {};
-      headers.forEach((h, i) => {
-        r[h] = cols[i] ? cols[i].trim() : "";
-      });
-      return normalizeRow(r);
+  function waitForBasofu() {
+    return new Promise((resolve, reject) => {
+      if (window.BASOFU) return resolve(window.BASOFU);
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        if (window.BASOFU) { clearInterval(iv); resolve(window.BASOFU); }
+        else if (Date.now() - t0 > 10000) { clearInterval(iv); reject(new Error("BASOFU global not found")); }
+      }, 50);
     });
+  }
+
+  /* Map GAS camelCase response → the field names normalizeRow expects */
+  function gasRowToSheetRow(r) {
+    function extractSrc(raw) {
+      if (!raw) return "";
+      const m = String(raw).match(/src\s*=\s*["']\s*([^"'\s]+)\s*["']/i);
+      if (m) return m[1].trim();
+      if (/^https?:\/\//i.test(String(raw).trim())) return String(raw).trim();
+      return raw;
+    }
+    function normSeason(val) {
+      if (!val) return "";
+      const s = String(val).trim();
+      if (/^\d{4}\/\d{2}$/.test(s)) return s;
+      if (/^\d{4}-\d{2}$/.test(s)) return s.replace("-", "/");
+      try { const d = new Date(s); if (!isNaN(d)) { const y = d.getFullYear(); return y + "/" + String(y+1).slice(2); } } catch(e) {}
+      return s;
+    }
+    return {
+      "Date":           r.date       || r["Date"]           || "",
+      "Season":         normSeason(r.season || r["Season"]  || ""),
+      "Week":           r.week       || r["Week"]           || "",
+      "Home":           r.home       || r["Home"]           || "",
+      "Home Goals":     r.hg !== undefined ? (r.hg === "" ? "" : r.hg) : (r["Home Goals"] || ""),
+      "Away":           r.away       || r["Away"]           || "",
+      "Away Goals":     r.ag !== undefined ? (r.ag === "" ? "" : r.ag) : (r["Away Goals"] || ""),
+      "Region":         r.region     || r["Region"]         || "",
+      "League":         r.league     || r["League"]         || "",
+      "Division":       r.division   || r["Division"]       || "",
+      "Group":          r.group      || r["Group"]          || "",
+      "Home Scorers":   r.homeScorers || r["Home Scorers"]  || "",
+      "Away Scorers":   r.awayScorers || r["Away Scorers"]  || "",
+      "Notes":          r.notes      || r["Notes"]          || "",
+      "Home Team Full": r.homeFull   || r["Home Team Full"] || "",
+      "Away Team Full": r.awayFull   || r["Away Team Full"] || "",
+      "Home Short":     r.homeShort  || r["Home Short"]     || "",
+      "Away Short":     r.awayShort  || r["Away Short"]     || "",
+      "Home Logo":      extractSrc(r.homeLogo || r["Home Logo"] || ""),
+      "Away Logo":      extractSrc(r.awayLogo || r["Away Logo"] || ""),
+      "Game Progress":  r.gp         || r["Game Progress"]  || ""
+    };
+  }
+
+  async function fetchResults() {
+    const B = await waitForBasofu();
+    const rows = await B.getResults(REGION);
+    return rows.map(r => normalizeRow(gasRowToSheetRow(r)));
   }
 
   function normalizeRow(r) {
@@ -972,7 +1015,8 @@ function getAggregateWinner(agg, legMatches = []) {
 }
 
 
-function renderKnockoutBracket(rounds) {
+function renderKnockoutBracket(rounds, clubPageMap) {
+  clubPageMap = clubPageMap || {};
   const roundNames = Object.keys(rounds || {});
   if (!roundNames.length) return "";
 
@@ -1090,14 +1134,14 @@ function renderKnockoutBracket(rounds) {
                     <div class="ko-team ko-upcoming-team">
                       <div class="ko-team-left">
                         ${m.home_logo ? `<img class="ko-logo" src="${m.home_logo}">` : ""}
-                        <span class="ko-team-name">${homeName}</span>
+                        ${homeName.toString().startsWith("<a") ? homeName : `<span class="ko-team-name">${homeName}</span>`}
                       </div>
                     </div>
 
                     <div class="ko-team ko-upcoming-team">
                       <div class="ko-team-left">
                         ${m.away_logo ? `<img class="ko-logo" src="${m.away_logo}">` : ""}
-                        <span class="ko-team-name">${awayName}</span>
+                        ${awayName.toString().startsWith("<a") ? awayName : `<span class="ko-team-name">${awayName}</span>`}
                       </div>
                     </div>
                   </div>
@@ -1125,8 +1169,14 @@ function renderKnockoutBracket(rounds) {
               const homeIsWinner = !!(winnerKey && winnerKey === m.homeKey);
               const awayIsWinner = !!(winnerKey && winnerKey === m.awayKey);
 
-              const homeName = (m.home_short || m.homeKey);
-              const awayName = (m.away_short || m.awayKey);
+              const _hKey    = (m.home_short || m.homeKey || "").trim().toLowerCase();
+              const _aKey    = (m.away_short || m.awayKey || "").trim().toLowerCase();
+              const _hUrl    = clubPageMap[_hKey] || "";
+              const _aUrl    = clubPageMap[_aKey] || "";
+              const _hLabel  = m.home_short || m.homeKey || "";
+              const _aLabel  = m.away_short || m.awayKey || "";
+              const homeName = _hUrl ? `<a href="${_hUrl}" class="ko-team-name">${_hLabel}</a>` : _hLabel;
+              const awayName = _aUrl ? `<a href="${_aUrl}" class="ko-team-name">${_aLabel}</a>` : _aLabel;
 
               // For single-leg ties (Final etc.), render pens on the card.
               const showSingleLegPens = (!isTwoLeg && agg.penText);
@@ -1138,7 +1188,7 @@ function renderKnockoutBracket(rounds) {
                   <div class="ko-team ${homeIsWinner ? "ko-winner" : "ko-loser"}">
                     <div class="ko-team-left">
                       ${m.home_logo ? `<img class="ko-logo" src="${m.home_logo}">` : ""}
-                      <span class="ko-team-name">${homeName}</span>
+                      ${homeName.toString().startsWith("<a") ? homeName : `<span class="ko-team-name">${homeName}</span>`}
                     </div>
                     <span class="ko-score">${formatSingleScore(m.home_goals)}</span>
                   </div>
@@ -1146,7 +1196,7 @@ function renderKnockoutBracket(rounds) {
                   <div class="ko-team ${awayIsWinner ? "ko-winner" : "ko-loser"}">
                     <div class="ko-team-left">
                       ${m.away_logo ? `<img class="ko-logo" src="${m.away_logo}">` : ""}
-                      <span class="ko-team-name">${awayName}</span>
+                      ${awayName.toString().startsWith("<a") ? awayName : `<span class="ko-team-name">${awayName}</span>`}
                     </div>
                     <span class="ko-score">${formatSingleScore(m.away_goals)}</span>
                   </div>
@@ -1614,7 +1664,7 @@ function renderKnockoutBracket(rounds) {
   hasGroupStage
 );
 
-      html += renderKnockoutBracket(rounds);
+      html += renderKnockoutBracket(rounds, clubPageMap);
       html += renderGoldenBootForMatches(allMatches);
       html += renderKnockoutMiniList(allMatches);
     }
@@ -1649,7 +1699,7 @@ function renderKnockoutBracket(rounds) {
 
       // Then knockout
       const rounds = groupKnockout(allMatches);
-      html += renderKnockoutBracket(rounds);
+      html += renderKnockoutBracket(rounds, clubPageMap);
       html += renderGoldenBootForMatches(allMatches);
       html += renderKnockoutMiniList(allMatches);
     }
@@ -1666,24 +1716,20 @@ function renderKnockoutBracket(rounds) {
   try {
     container.innerHTML = "<p>Loading…</p>";
 
+    /* Wait for BASOFU global (footer injection) */
+    const BASOFU = await waitForBasofu();
+
     /* Fetch results + clubs metadata in parallel */
     const [allRows, clubsData] = await Promise.all([
-      fetchResults(),
-      (async () => {
-        try {
-          if (window.BASOFU && window.BASOFU.getClubsMeta) {
-            return await window.BASOFU.getClubsMeta(REGION);
-          }
-        } catch(e) { /* non-fatal */ }
-        return [];
-      })()
+      BASOFU.getResults(REGION).then(rows => rows.map(r => normalizeRow(gasRowToSheetRow(r)))),
+      BASOFU.getClubsMeta(REGION).catch(() => [])
     ]);
 
     /* Build shortName → page URL lookup from clubs sheet */
     const clubPageMap = {};
     (clubsData || []).forEach(c => {
-      const key   = norm(c.shortName || c["Short Name"] || "");
-      const page  = (c.page || c["Page"] || "").trim();
+      const key  = norm(c.shortName || c["Short Name"] || "");
+      const page = (c.page || c["Page"] || "").trim();
       if (key && page) clubPageMap[key] = page;
     });
 
