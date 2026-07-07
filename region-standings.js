@@ -1,20 +1,3 @@
-<!-- CONTROLS -->
-<div id="basofu-controls"
-     style="margin-bottom:1rem; display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center;">
-  <label>Season:
-    <select id="basofu-season-select"></select>
-  </label>
-</div>
-
-<!-- COMPETITION TABS -->
-<div id="basofu-competition-tabs" style="margin-bottom:1rem;"></div>
-
-<!-- TABLE / BRACKET CONTAINER -->
-<div id="basofu-league-container" class="responsive-results">
-  <p style="font-style: italic; opacity: 0.7;">Loading Basofu standings…</p>
-</div>
-
-<script>
 (async function () {
   /* ============================================================
      CONFIG
@@ -1771,9 +1754,7 @@ function renderKnockoutBracket(rounds, clubPageMap) {
     container.innerHTML = "<p>Error loading Basofu standings.</p>";
   }
 })();
-</script>
 
-<script>
 /* ============================================================
    BASOFU – Knockout SVG Connectors & Enhancements
    Adds:
@@ -2045,4 +2026,3 @@ setInterval(() => {
     location.reload();
   }
 }, BASOFU_REFRESH_MS);
-</script>
