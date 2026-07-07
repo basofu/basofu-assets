@@ -86,8 +86,9 @@ const [resultsData, honoursData, clubsData] = await Promise.all([
 /* ── NORMALISE RESULTS ──────────────────────────────────── */
 const normRow = r => ({
   date:       r.date       || r["Date"]           || "",
-  season:     r.season     || r["Season"]         || "",
+  season:     normSeason(r.season || r["Season"] || ""),
   week:       r.week       || r["Week"]           || "",
+  region:     r.region     || r["Region"]         || "",
   league:     r.league     || r["League"]         || "",
   division:   r.division   || r["Division"]       || "1",
   homeShort:  r.homeShort  || r["Home Short"]     || r.homeFull || "",
@@ -105,7 +106,12 @@ const allRows = resultsData.map(normRow);
 
 /* Determine current/latest season */
 const seasons = [...new Set(allRows.map(r => r.season).filter(Boolean))]
-  .sort((a,b) => String(b).localeCompare(String(a)));
+  .sort((a, b) => {
+    /* Sort "2025/26" > "2024/25" etc by the start year */
+    const ya = parseInt(String(a)) || 0;
+    const yb = parseInt(String(b)) || 0;
+    return yb - ya;
+  });
 const SEASON = window.BSF_SEASON || seasons[0] || "";
 
 const seasonRows = allRows.filter(r => r.season === SEASON);
@@ -136,9 +142,8 @@ function normSeason(val) {
    Torneio de Abertura, etc. without hardcoding anything */
 const regionComps = new Set(
   allRows
-    .filter(r => norm(r.region || r.league || "") === norm(REGION) ||
-                 norm(r.region || "") === norm(REGION))
-    .map(r => (r.league || r.competition || "").trim())
+    .filter(r => norm(r.region) === norm(REGION))
+    .map(r => r.league.trim())
     .filter(Boolean)
 );
 
