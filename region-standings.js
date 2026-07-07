@@ -888,6 +888,10 @@ function normalizeKnockoutRound(wk) {
   return null;
 }
 
+/* Module-level clubPageMap — populated in MAIN after clubs fetch,
+   accessible by renderKnockoutBracket and renderStandingsTable */
+let clubPageMap = {};
+
 function groupKnockout(matches, compType) {
   // Returns an ordered object:
   // {
@@ -1004,8 +1008,7 @@ function getAggregateWinner(agg, legMatches = []) {
 }
 
 
-function renderKnockoutBracket(rounds, clubPageMap) {
-  clubPageMap = clubPageMap || {};
+function renderKnockoutBracket(rounds) {
   const roundNames = Object.keys(rounds || {});
   if (!roundNames.length) return "";
 
@@ -1653,7 +1656,7 @@ function renderKnockoutBracket(rounds, clubPageMap) {
   hasGroupStage
 );
 
-      html += renderKnockoutBracket(rounds, clubPageMap);
+      html += renderKnockoutBracket(rounds);
       html += renderGoldenBootForMatches(allMatches);
       html += renderKnockoutMiniList(allMatches);
     }
@@ -1688,7 +1691,7 @@ function renderKnockoutBracket(rounds, clubPageMap) {
 
       // Then knockout
       const rounds = groupKnockout(allMatches);
-      html += renderKnockoutBracket(rounds, clubPageMap);
+      html += renderKnockoutBracket(rounds);
       html += renderGoldenBootForMatches(allMatches);
       html += renderKnockoutMiniList(allMatches);
     }
@@ -1726,7 +1729,7 @@ function renderKnockoutBracket(rounds, clubPageMap) {
     ]);
 
     /* Build shortName → page URL lookup from clubs sheet */
-    const clubPageMap = {};
+    clubPageMap = {};
     (clubsData || []).forEach(c => {
       const key  = norm(c.shortName || c["Short Name"] || "");
       const page = (c.page || c["Page"] || "").trim();
