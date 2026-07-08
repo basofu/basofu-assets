@@ -367,13 +367,18 @@ const recent   = seasonRows.filter(r=>!isLive(r)&&isFinished(r)).map(dated).filt
 
 /* ── NEWS CAROUSEL ──────────────────────────────────────── */
 async function loadNews() {
-  const tag = encodeURIComponent(REGION.toLowerCase());
+  /* Squarespace tag filter is case-sensitive — use the region name as-is */
+  const tag = encodeURIComponent(REGION);
   try {
-    const res = await fetch(`/articles?tag=${tag}&format=json`, { cache: "no-store" });
+    const res = await fetch(`/news?tag=${tag}&format=json`, { cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json();
-    return (json.items || [])
-      .filter(p => (p.tags||[]).some(t => norm(t) === norm(REGION)))
+    const items = json.items || json.mainContent?.items || [];
+    return items
+      .filter(p => {
+        const tags = p.tags || p.categories || [];
+        return tags.some(t => norm(t) === norm(REGION));
+      })
       .slice(0, 8);
   } catch(e) { return []; }
 }
@@ -390,7 +395,7 @@ const newsHTML = newsItems.length ? `
       ${newsItems.map(p => {
         const img   = p.assetUrl || "";
         const title = esc(p.title || "");
-        const url   = esc(p.fullUrl || p.url || "#");
+        const url   = esc(p.fullUrl || "#");
         const date  = p.publishOn ? fmtDate(new Date(p.publishOn).toISOString().slice(0,10)) : "";
         return `
           <a href="${url}" class="bsf-region__news-card">
