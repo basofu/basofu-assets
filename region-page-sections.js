@@ -5,9 +5,6 @@
 (async function () {
 "use strict";
 
-if (window.__basofuSectionsRunning) return;
-window.__basofuSectionsRunning = true;
-
 /* ── HELPERS ─────────────────────────────────────────────── */
 function esc(s) {
   return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -395,7 +392,6 @@ if (live.length) {
 }
 
 } catch(err) {
-  window.__basofuSectionsRunning = false;
   console.error("[Basofu region]", err);
   if (root) root.innerHTML = `<p style="color:red;font-family:monospace;font-size:12px;">Error: ${esc(err.message)}</p>`;
 }
