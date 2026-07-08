@@ -56,15 +56,22 @@ function extractImgSrc(raw) {
 }
 
 function isFinished(m) {
-  const g = (m.gp||m["Game Progress"]||"").trim();
-  return g === "FT" || (m.hg !== null && m.ag !== null && m.hg !== undefined && m.ag !== undefined && g !== "");
+  const g = String(m.gp || "").trim();
+  /* Must have both goals AND game progress of FT (or blank gp with goals) */
+  const hasGoals = m.hg !== null && m.hg !== undefined && m.hg !== "" &&
+                   m.ag !== null && m.ag !== undefined && m.ag !== "";
+  return hasGoals && (g === "FT" || g === "" || g === "0");
 }
 function isLive(m) {
-  const g = (m.gp||m["Game Progress"]||"").trim();
-  return !isNaN(g) && g !== "" && g !== "FT";
+  const g = String(m.gp || "").trim();
+  return g !== "" && g !== "FT" && !isNaN(Number(g));
 }
 function isUpcoming(m) {
-  return !isFinished(m) && !isLive(m);
+  const g = String(m.gp || "").trim();
+  const hasGoals = m.hg !== null && m.hg !== undefined && m.hg !== "" &&
+                   m.ag !== null && m.ag !== undefined && m.ag !== "";
+  /* Upcoming: no goals yet, and gp is blank or literally "Upcoming" */
+  return !hasGoals && !isLive(m);
 }
 
 /* ── MOUNT ──────────────────────────────────────────────── */
@@ -97,8 +104,8 @@ const normRow = r => ({
   awayFull:   r.awayFull   || r["Away Team Full"] || "",
   homeLogo:   extractImgSrc(r.homeLogo || r["Home Logo"] || ""),
   awayLogo:   extractImgSrc(r.awayLogo || r["Away Logo"] || ""),
-  hg:         r.hg !== undefined ? r.hg : (r["Home Goals"] !== "" ? Number(r["Home Goals"]) : null),
-  ag:         r.ag !== undefined ? r.ag : (r["Away Goals"] !== "" ? Number(r["Away Goals"]) : null),
+  hg:         (r.hg !== null && r.hg !== undefined && r.hg !== "") ? Number(r.hg) : null,
+  ag:         (r.ag !== null && r.ag !== undefined && r.ag !== "") ? Number(r.ag) : null,
   gp:         r.gp         || r["Game Progress"]  || "",
 });
 
