@@ -18,8 +18,14 @@
 "use strict";
 
 /* ── CONFIG ─────────────────────────────────────────────── */
-const REGION  = window.BSF_REGION || "Fogo";
+const REGION  = window.BSF_REGION || "";
 const BIO     = window.BSF_BIO    || "";
+
+if (!REGION) {
+  document.getElementById("bsf-region-root").innerHTML =
+    "<p style='color:red;'>Region not configured — set window.BSF_REGION before loading this script.</p>";
+  return;
+}
 const API_SECRET = window.BASOFU?.API_SECRET || window.BSF_SECRET || "";
 
 /* ── WAIT FOR BASOFU GLOBAL ─────────────────────────────── */
@@ -123,7 +129,15 @@ const SEASON = window.BSF_SEASON || seasons[0] || "";
 
 const seasonRows = allRows.filter(r => r.season === SEASON);
 
-/* ── BUILD CLUB PAGE MAP ────────────────────────────────── */
+/* ── DIAGNOSTICS ─────────────────────────────────────────── */
+console.log("[Basofu] REGION:", REGION, "| SEASON:", SEASON);
+console.log("[Basofu] allRows:", allRows.length, "| seasonRows:", seasonRows.length);
+const _sample = seasonRows.slice(0, 3).map(r => ({
+  date: r.date, season: r.season, hg: r.hg, ag: r.ag, gp: r.gp,
+  finished: isFinished(r), live: isLive(r), upcoming: isUpcoming(r)
+}));
+console.log("[Basofu] sample rows:", JSON.stringify(_sample, null, 2));
+
 const clubPageMap = {};
 const clubLogoMap = {};
 (clubsData || []).forEach(c => {
