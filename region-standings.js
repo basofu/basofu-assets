@@ -1,4 +1,8 @@
 (async function () {
+/* Guard against Squarespace rendering the code block twice */
+if (window.__basofuStandingsRunning) return;
+window.__basofuStandingsRunning = true;
+
   /* ============================================================
      CONFIG
   ============================================================ */
