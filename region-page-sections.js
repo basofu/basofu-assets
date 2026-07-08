@@ -152,21 +152,25 @@ function makeCard(m, type) {
   const el = document.createElement("div");
   el.className = "ko-match ko-animate";
   el.style.cssText = "flex:0 0 auto;min-width:240px;max-width:260px;scroll-snap-align:start;";
+  const liveDot = type==="live" ? "<span style=\"display:inline-block;width:6px;height:6px;border-radius:50%;background:#C2A14A;margin-right:4px;animation:bsf-pulse 1.4s infinite;vertical-align:middle;\"></span>" : "";
+  const hLogoHTML = hLogo ? "<img src=\"" + esc(hLogo) + "\" class=\"ko-logo\" alt=\"\">" : "";
+  const aLogoHTML = aLogo ? "<img src=\"" + esc(aLogo) + "\" class=\"ko-logo\" alt=\"\">" : "";
+
   el.innerHTML = `
     <div class="ko-date">
-      ${type==="live" ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#C2A14A;margin-right:4px;animation:bsf-pulse 1.4s infinite;vertical-align:middle;"></span>` : ""}
-      ${esc(fmtDate(m.date))} · ${esc(m.league)}${min ? ` · <strong>${min}</strong>` : ""}
+      ${liveDot}
+      ${esc(fmtDate(m.date))} · ${esc(m.league)}${min ? " · <strong>" + min + "</strong>" : ""}
     </div>
     <div class="ko-team ${hWon?"ko-winner":aWon?"ko-loser":""}">
       <div class="ko-team-left">
-        ${hLogo ? `<img src="${esc(hLogo)}" class="ko-logo" alt="">` : ""}
+        ${hLogoHTML}
         ${hName}
       </div>
       <span class="ko-score">${hg !== null ? hg : ""}</span>
     </div>
     <div class="ko-team ${aWon?"ko-winner":hWon?"ko-loser":""}">
       <div class="ko-team-left">
-        ${aLogo ? `<img src="${esc(aLogo)}" class="ko-logo" alt="">` : ""}
+        ${aLogoHTML}
         ${aName}
       </div>
       <span class="ko-score">${ag !== null ? ag : ""}</span>
@@ -261,7 +265,7 @@ const tabs = [
   ...(upcoming.length ? [{ key:"upcoming", label:"UPCOMING",           c: upC   }] : []),
   ...(recent.length   ? [{ key:"recent",   label:"RESULTS",            c: recC  }] : []),
 ];
-const defaultTab = tabs[0]?.key || "recent";
+const defaultTab = (tabs[0] && tabs[0].key) || "recent";
 
 const resultsHTML = tabs.length ? `
   <div class="bsf-region__section"><div class="bsf-region__section-label">Results</div></div>
@@ -293,8 +297,8 @@ const compOrder = s => {
   const l = s.toLowerCase();
   if (/campeonato|liga regional/i.test(l)) return 0;
   if (/torneio/i.test(l))                  return 1;
-  if (/ta[çc]a/i.test(l))                  return 2;
-  if (/supertaça|supertaca|super.?ta/i.test(l)) return 3;
+  if (/ta[çcC]a|taca/i.test(l))               return 2;
+  if (/supertac|super.?ta/i.test(l))           return 3;
   return 4;
 };
 const sortedComps = Object.keys(champsByComp).sort((a,b) => compOrder(a) - compOrder(b));
@@ -309,7 +313,7 @@ const champHTML = sortedComps.length ? `
         <div class="bsf-region__champ-comp">${esc(comp)}</div>
         <div class="bsf-region__champ-winner">${esc(latest.winner)}</div>
         <div class="bsf-region__champ-year">${esc(latest.year)}</div>
-        ${prev.length ? `<div class="bsf-region__champ-prev">${prev.map(e=>`<span>${esc(e.winner)} <em>${esc(e.year)}</em></span>`).join("")}</div>` : ""}
+        ${prev.length ? "<div class=\"bsf-region__champ-prev\">" + prev.map(e=>"<span>"+esc(e.winner)+" <em>"+esc(e.year)+"</em></span>").join("") + "</div>" : ""}
       </div>`;
     }).join("")}
   </div>` : "";
@@ -335,11 +339,13 @@ try {
               const img  = p.assetUrl || "";
               const url  = esc(p.fullUrl || "#");
               const date = p.publishOn ? fmtDate(new Date(p.publishOn).toISOString().slice(0,10)) : "";
+              const imgHTML  = img ? "<div class=\"bsf-region__news-img\" style=\"background-image:url('" + esc(img) + "')\"></div>"
+                                   : "<div class=\"bsf-region__news-img bsf-region__news-img--empty\"></div>";
+              const dateHTML = date ? "<div class=\"bsf-region__news-date\">" + date + "</div>" : "";
               return `<a href="${url}" class="bsf-region__news-card">
-                ${img ? `<div class="bsf-region__news-img" style="background-image:url('${esc(img)}')"></div>`
-                      : `<div class="bsf-region__news-img bsf-region__news-img--empty"></div>`}
+                ${imgHTML}
                 <div class="bsf-region__news-body">
-                  ${date ? `<div class="bsf-region__news-date">${date}</div>` : ""}
+                  ${dateHTML}
                   <div class="bsf-region__news-title">${esc(p.title||"")}</div>
                 </div>
               </a>`;
