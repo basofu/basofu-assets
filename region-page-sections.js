@@ -17,7 +17,10 @@
 (async function () {
 "use strict";
 
-/* ── CONFIG ─────────────────────────────────────────────── */
+/* Guard against Squarespace rendering the code block twice */
+if (window.__basofuSectionsRunning) return;
+window.__basofuSectionsRunning = true;
+
 const REGION  = window.BSF_REGION || "";
 const BIO     = window.BSF_BIO    || "";
 
