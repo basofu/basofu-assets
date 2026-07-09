@@ -602,11 +602,11 @@
     ].filter(Boolean);
 
     var resultsHTML = "";
+    var tabsEl  = document.createElement("div");
+    var panelsEl = document.createElement("div");
+    tabsEl.className = "bsf-results-tabs";
     if (resultsTabs.length) {
       var defaultTab = resultsTabs[0].key;
-      var tabsEl = document.createElement("div");
-      tabsEl.className = "bsf-results-tabs";
-      var panelsEl = document.createElement("div");
       resultsTabs.forEach(function(tab) {
         var btn = document.createElement("button");
         btn.className = "bsf-results-tab" + (tab.key === defaultTab ? " active" : "");
