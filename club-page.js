@@ -943,7 +943,16 @@
       ${rosterHTML}
     `;
 
-
+    /* Inject DOM-based results tabs into mount point */
+    const resultMount = document.getElementById("bsf-club-results-mount");
+    if (resultMount) {
+      if (resultsTabs && resultsTabs.length) {
+        resultMount.appendChild(tabsEl);
+        resultMount.appendChild(panelsEl);
+      } else {
+        resultMount.innerHTML = "<p style=\"font-size:11px;color:var(--muted);\">No results found.</p>";
+      }
+    }
     /* Build honorSeasonSet and honorDetails from winsByComp for chart annotations */
     const honorSeasonSet = new Set();
     const honorDetails   = {}; /* season → ["Campeonato Regional", "Taça ..."] */
@@ -1177,7 +1186,6 @@
                   const p = chartPoints[c[0].dataIndex];
                   if (!p) return "";
                   let t = p.season || "";
-                  /* Show titles won this season */
                   const titles = (cfg.honorDetails || {})[p.season];
                   if (titles && titles.length) {
                     t += " · 🏆 " + titles.join(", ");
@@ -1323,22 +1331,26 @@
             const count = cells[key] || 0;
             const x     = pad + gf * cellSize;
             const y     = pad + ga * cellSize;
-            /* Colour: win=green, draw=gold, loss=red, unseen=light grey */
+            /* Basofu palette: navy win, gold draw, red loss, rule grey unseen */
             let fill;
             if (!count) {
-              fill = "#f5f5f5";
+              fill = "#f0f0ee"; /* --rule colour for unseen */
             } else if (gf > ga) {
-              const intensity = 0.3 + 0.7 * (count / maxCount);
-              const g = Math.round(100 + 55 * intensity);
-              fill = "rgb(30," + g + ",30)";
+              /* Win: navy #2F3E46 scaled by frequency */
+              const intensity = 0.35 + 0.65 * (count / maxCount);
+              const r = Math.round(47  * intensity);
+              const g = Math.round(62  * intensity);
+              const b = Math.round(70  * intensity + 60 * (1 - intensity));
+              fill = "rgb(" + r + "," + g + "," + b + ")";
             } else if (gf === ga) {
-              const intensity = 0.3 + 0.7 * (count / maxCount);
-              const r = Math.round(180 + 30 * intensity);
-              fill = "rgb(" + r + "," + Math.round(140*intensity) + ",20)";
+              /* Draw: gold #C2A14A scaled by frequency */
+              const intensity = 0.4 + 0.6 * (count / maxCount);
+              fill = "rgba(194," + Math.round(161*intensity) + "," + Math.round(74*intensity) + ",1)";
             } else {
-              const intensity = 0.3 + 0.7 * (count / maxCount);
-              const r = Math.round(150 + 80 * intensity);
-              fill = "rgb(" + r + ",30,30)";
+              /* Loss: red #A44A3F scaled by frequency */
+              const intensity = 0.35 + 0.65 * (count / maxCount);
+              const r = Math.round(164 * intensity + 40 * (1 - intensity));
+              fill = "rgb(" + r + "," + Math.round(74*intensity) + "," + Math.round(63*intensity) + ")";
             }
             svg += "<rect x='" + x + "' y='" + y + "' width='" + (cellSize-1) + "' height='" + (cellSize-1) + "' " +
               "fill='" + fill + "' rx='2'>" +
