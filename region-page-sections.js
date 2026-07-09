@@ -353,11 +353,31 @@ try {
   }
 } catch(e) { /* news is non-fatal */ }
 
+/* ── SCORIGAMI HTML ──────────────────────────────────────── */
+const scoriSlug  = REGION.replace(/\s/g, "-");
+const scoriComps = [...new Set(allRows.map(r => r.league).filter(Boolean))].sort();
+const scoriSeasons = seasons.slice(); /* already sorted desc */
+
+const scorigamiHTML = `
+  <div class="bsf-region__section"><div class="bsf-region__section-label">Scorigami</div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+    <select id="bsf-sg-season-${scoriSlug}" class="bsf-club__season-select" style="min-width:100px;">
+      <option value="">All Time</option>
+      ${scoriSeasons.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}
+    </select>
+    <select id="bsf-sg-comp-${scoriSlug}" class="bsf-club__season-select" style="min-width:160px;">
+      <option value="">All Competitions</option>
+      ${scoriComps.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("")}
+    </select>
+  </div>
+  <div id="bsf-sg-mount-${scoriSlug}" style="overflow-x:auto;"></div>`;
+
 /* ── RENDER ──────────────────────────────────────────────── */
 root.innerHTML = [
   BIO    ? `<div class="bsf-region__bio">${BIO}</div>` : "",
   resultsHTML,
   champHTML,
+  scorigamiHTML,
   newsHTML,
 ].filter(Boolean).join("\n");
 
@@ -367,6 +387,91 @@ root.innerHTML = [
   const el = document.getElementById(c.id);
   if (el) c.els.forEach(card => el.appendChild(card));
 });
+
+/* ── SCORIGAMI RENDERER ───────────────────────────────────── */
+(function() {
+  const mount   = document.getElementById(`bsf-sg-mount-${scoriSlug}`);
+  const selSeas = document.getElementById(`bsf-sg-season-${scoriSlug}`);
+  const selComp = document.getElementById(`bsf-sg-comp-${scoriSlug}`);
+  if (!mount) return;
+
+  function render() {
+    const season = selSeas ? selSeas.value : "";
+    const comp   = selComp ? selComp.value : "";
+    const rows   = allRows.filter(r =>
+      r.hg !== null && r.ag !== null &&
+      (!season || r.season === season) &&
+      (!comp   || r.league === comp)
+    );
+
+    let maxH = 0, maxA = 0;
+    const cells = {};
+    rows.forEach(r => {
+      const h = Number(r.hg), a = Number(r.ag);
+      if (isNaN(h) || isNaN(a)) return;
+      maxH = Math.max(maxH, h);
+      maxA = Math.max(maxA, a);
+      const k = h + "," + a;
+      cells[k] = (cells[k] || 0) + 1;
+    });
+
+    if (!Object.keys(cells).length) {
+      mount.innerHTML = "<p style='font-size:11px;color:#888;'>No results to display.</p>";
+      return;
+    }
+
+    const maxCount = Math.max(...Object.values(cells));
+    const cellSize = Math.max(16, Math.min(32, Math.floor(560 / Math.max(maxH, maxA, 6))));
+    const pad = 28;
+    const svgW = pad + (maxH + 1) * cellSize;
+    const svgH = pad + (maxA + 1) * cellSize;
+
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" style="font-family:Inter,system-ui,sans-serif;">`;
+
+    /* Axis labels */
+    svg += `<text x="${svgW/2}" y="10" text-anchor="middle" font-size="9" fill="#555">Home Goals</text>`;
+    for (let h = 0; h <= maxH; h++) {
+      svg += `<text x="${pad + h*cellSize + cellSize/2}" y="${pad-6}" text-anchor="middle" font-size="9" fill="#888">${h}</text>`;
+    }
+    for (let a = 0; a <= maxA; a++) {
+      svg += `<text x="${pad-4}" y="${pad + a*cellSize + cellSize/2 + 3}" text-anchor="end" font-size="9" fill="#888">${a}</text>`;
+    }
+
+    /* Away goals label rotated */
+    svg += `<text transform="rotate(-90)" x="${-(svgH/2)}" y="10" text-anchor="middle" font-size="9" fill="#555">Away Goals</text>`;
+
+    /* Cells */
+    for (let h = 0; h <= maxH; h++) {
+      for (let a = 0; a <= maxA; a++) {
+        const k     = h + "," + a;
+        const count = cells[k] || 0;
+        const x     = pad + h * cellSize;
+        const y     = pad + a * cellSize;
+        let fill;
+        if (!count) {
+          fill = "#f0f0ee";
+        } else {
+          const t = 0.45 + 0.50 * (count / maxCount);
+          if (h > a)      fill = `rgba(47,62,70,${t})`;    /* home win — navy */
+          else if (h < a) fill = `rgba(164,74,63,${t})`;   /* away win — red  */
+          else             fill = `rgba(194,161,74,${t})`; /* draw    — gold  */
+        }
+        const label = h + "–" + a + (count ? ` (${count}×)` : " (never)");
+        svg += `<rect x="${x}" y="${y}" width="${cellSize-1}" height="${cellSize-1}" fill="${fill}" rx="2"><title>${label}</title></rect>`;
+        if (count && cellSize >= 22) {
+          svg += `<text x="${x+cellSize/2}" y="${y+cellSize/2+3}" text-anchor="middle" font-size="${Math.min(10,cellSize*0.35)}" fill="rgba(255,255,255,0.9)" font-weight="600">${count}</text>`;
+        }
+      }
+    }
+
+    svg += "</svg>";
+    mount.innerHTML = svg;
+  }
+
+  render();
+  if (selSeas) selSeas.addEventListener("change", render);
+  if (selComp) selComp.addEventListener("change", render);
+})();
 
 /* ── LIVE REFRESH ────────────────────────────────────────── */
 if (live.length) {
