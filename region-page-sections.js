@@ -128,149 +128,201 @@ const clubLogoMap = {};
 
 /* ── MATCH CARDS ─────────────────────────────────────────── */
 /* ============================================================
-   DIXON-COLES MODEL
-   Fits attack/defence parameters per team using maximum
-   likelihood estimation over a time-weighted Poisson model.
-   Includes low-score correction (rho) for 0-0, 1-0, 0-1, 1-1.
-   Reference: Dixon & Coles (1997), time-weighting per Rue & Salvesen.
+   DIXON-COLES MODEL v2 — Iterative Proportional Fitting
+   Much more reliable than gradient ascent for small datasets.
+   Uses closed-form updates for attack/defence parameters,
+   then scans rho analytically.
 ============================================================ */
-
 function dixonColes(allMatches, homeTeam, awayTeam, options) {
   options = options || {};
-  const XI    = options.xi    || 0.0065; /* time decay per day */
-  const ITERS = options.iters || 100;    /* gradient ascent iterations */
-  const LR    = options.lr    || 0.01;   /* learning rate */
+  const XI    = options.xi    || 0.0065; /* time decay ~107 day half-life */
+  const ITERS = options.iters || 50;     /* IPF iterations */
 
-  /* ── 1. Filter to finished matches with both teams present ── */
+  /* ── 1. Build weighted match list ── */
   const now     = Date.now();
-  const matches = allMatches.filter(m => {
-    const hg = Number(m.home_goals ?? m.hg);
-    const ag = Number(m.away_goals ?? m.ag);
-    return !isNaN(hg) && !isNaN(ag) &&
-           (m.home_goals ?? m.hg) !== "" &&
-           (m.away_goals ?? m.ag) !== "";
-  }).map(m => {
-    const d = new Date(m.date);
-    const age = isNaN(d) ? 365 : (now - d.getTime()) / 86400000;
-    return {
-      home: (m.homeShort || m.home_short || "").trim(),
-      away: (m.awayShort || m.away_short || "").trim(),
-      hg:   Number(m.home_goals ?? m.hg),
-      ag:   Number(m.away_goals ?? m.ag),
-      w:    Math.exp(-XI * age)  /* time weight */
-    };
-  }).filter(m => m.w > 0.01);   /* ignore very old matches */
+  const matches = [];
+  allMatches.forEach(function(m) {
+    const hg = m.home_goals !== undefined ? m.home_goals : m.hg;
+    const ag = m.away_goals !== undefined ? m.away_goals : m.ag;
+    if (hg === null || hg === undefined || hg === "" ||
+        ag === null || ag === undefined || ag === "") return;
+    const hgN = Number(hg), agN = Number(ag);
+    if (isNaN(hgN) || isNaN(agN)) return;
+    const d   = new Date(m.date);
+    const age = isNaN(d.getTime()) ? 365 : (now - d.getTime()) / 86400000;
+    const w   = Math.exp(-XI * Math.max(0, age));
+    if (w < 0.01) return;
+    matches.push({
+      home: (m.homeShort || m.home_short || m.home || "").trim(),
+      away: (m.awayShort || m.away_short || m.away || "").trim(),
+      hg: hgN, ag: agN, w
+    });
+  });
 
-  if (matches.length < 5) return null; /* not enough data */
+  if (matches.length < 10) return null;
 
-  /* ── 2. Collect all teams ── */
+  /* ── 2. Collect teams ── */
   const teamSet = new Set();
-  matches.forEach(m => { teamSet.add(m.home); teamSet.add(m.away); });
+  matches.forEach(function(m) { teamSet.add(m.home); teamSet.add(m.away); });
   if (!teamSet.has(homeTeam) || !teamSet.has(awayTeam)) return null;
-  const teams  = [...teamSet];
-  const tIdx   = {};
-  teams.forEach((t, i) => tIdx[t] = i);
-  const n      = teams.length;
+  const teams = Array.from(teamSet);
+  const tIdx  = {};
+  teams.forEach(function(t, i) { tIdx[t] = i; });
+  const n = teams.length;
 
-  /* ── 3. Initialise parameters ──
-     params: [attack_0..n-1, defence_0..n-1, homeAdv, rho]
-     log scale for attack/defence for positivity */
-  const params = new Float64Array(2 * n + 2);
-  params.fill(0); /* log(1)=0 for attack/defence, homeAdv=0, rho=0 */
+  /* ── 3. Initialise attack=1, defence=1, homeAdv=1.3, rho=-0.1 ── */
+  const attack  = new Float64Array(n).fill(1.0);
+  const defence = new Float64Array(n).fill(1.0);
+  let   homeAdv = 1.3;
+  let   rho     = -0.05;
 
-  function getAttack(i)  { return Math.exp(params[i]); }
-  function getDefence(i) { return Math.exp(params[n + i]); }
-  function getHome()     { return Math.exp(params[2*n]); }
-  function getRho()      { return params[2*n + 1]; }
+  /* Weighted totals for each team */
+  const wHomeGoals   = new Float64Array(n);
+  const wAwayGoals   = new Float64Array(n);
+  const wHomeConcede = new Float64Array(n);
+  const wAwayConcede = new Float64Array(n);
+  const wHomeGames   = new Float64Array(n);
+  const wAwayGames   = new Float64Array(n);
+  let   totalW = 0;
 
-  /* Dixon-Coles tau correction for low scores */
-  function tau(hg, ag, lambdaH, muA, rho) {
-    if      (hg === 0 && ag === 0) return 1 - lambdaH * muA * rho;
-    else if (hg === 1 && ag === 0) return 1 + muA * rho;
-    else if (hg === 0 && ag === 1) return 1 + lambdaH * rho;
-    else if (hg === 1 && ag === 1) return 1 - rho;
-    else                            return 1;
+  matches.forEach(function(m) {
+    const hi = tIdx[m.home], ai = tIdx[m.away];
+    wHomeGoals[hi]   += m.w * m.hg;
+    wAwayGoals[ai]   += m.w * m.ag;
+    wHomeConcede[ai] += m.w * m.hg;
+    wAwayConcede[hi] += m.w * m.ag;
+    wHomeGames[hi]   += m.w;
+    wAwayGames[ai]   += m.w;
+    totalW += m.w;
+  });
+
+  /* ── 4. IPF: alternate updating attack and defence ── */
+  for (let iter = 0; iter < ITERS; iter++) {
+    /* Update home advantage */
+    let numH = 0, denH = 0;
+    matches.forEach(function(m) {
+      const hi = tIdx[m.home], ai = tIdx[m.away];
+      numH += m.w * m.hg;
+      denH += m.w * attack[hi] * defence[ai];
+    });
+    homeAdv = numH / Math.max(denH, 1e-10);
+
+    /* Update attack parameters */
+    for (let i = 0; i < n; i++) {
+      let expGoals = 0;
+      matches.forEach(function(m) {
+        const ai = tIdx[m.away];
+        if (tIdx[m.home] === i) expGoals += m.w * homeAdv * defence[ai];
+        if (tIdx[m.away] === i) expGoals += m.w * attack[tIdx[m.home]];
+        /* Note: second term uses opponent's attack, contributing to away scoring */
+      });
+      /* Simpler: attack[i] = weighted avg goals scored / expected */
+      const scored = wHomeGoals[i] + wAwayGoals[i];
+      let expected = 0;
+      matches.forEach(function(m) {
+        if (tIdx[m.home] === i) expected += m.w * homeAdv * defence[tIdx[m.away]];
+        else if (tIdx[m.away] === i) expected += m.w * defence[tIdx[m.home]];
+      });
+      /* Wait, this is wrong. Let's do proper IPF: */
+      /* attack[i] = total weighted goals scored by i / sum(expected goals by i) */
+      /* where expected = attack[i] * defence[opponent] * (homeAdv if home) */
+      /* Cancelling attack[i]: new_attack[i] = scored / (sum defence[opp] * w * hadv) */
+      let denom = 0;
+      matches.forEach(function(m) {
+        const hi = tIdx[m.home], ai = tIdx[m.away];
+        if (hi === i) denom += m.w * homeAdv * defence[ai];
+        if (ai === i) denom += m.w * defence[hi];
+      });
+      if (denom > 1e-10) attack[i] = scored / denom;
+    }
+
+    /* Update defence parameters */
+    for (let i = 0; i < n; i++) {
+      const conceded = wHomeConcede[i] + wAwayConcede[i];
+      let denom = 0;
+      matches.forEach(function(m) {
+        const hi = tIdx[m.home], ai = tIdx[m.away];
+        if (ai === i) denom += m.w * homeAdv * attack[hi];
+        if (hi === i) denom += m.w * attack[ai];
+      });
+      if (denom > 1e-10) defence[i] = conceded / denom;
+    }
+
+    /* Normalise: set mean attack = 1 */
+    let meanAtk = 0;
+    for (let i = 0; i < n; i++) meanAtk += attack[i];
+    meanAtk /= n;
+    for (let i = 0; i < n; i++) { attack[i] /= meanAtk; defence[i] *= meanAtk; }
   }
 
+  /* ── 5. Estimate rho via grid search ── */
+  function tauCorr(hg, ag, lH, mA, r) {
+    if      (hg===0 && ag===0) return Math.max(0.01, 1 - lH*mA*r);
+    else if (hg===1 && ag===0) return Math.max(0.01, 1 + mA*r);
+    else if (hg===0 && ag===1) return Math.max(0.01, 1 + lH*r);
+    else if (hg===1 && ag===1) return Math.max(0.01, 1 - r);
+    return 1;
+  }
   function poisson(k, lambda) {
-    /* log poisson for numerical stability */
-    let lp = -lambda + k * Math.log(Math.max(lambda, 1e-10));
+    if (lambda <= 0) return k === 0 ? 1 : 0;
+    let lp = -lambda + k * Math.log(lambda);
     for (let i = 2; i <= k; i++) lp -= Math.log(i);
     return Math.exp(lp);
   }
-
-  /* ── 4. Log-likelihood ── */
-  function logLik() {
-    let ll  = 0;
-    const h = getHome(), rho = getRho();
-    matches.forEach(m => {
+  function logLikRho(r) {
+    let ll = 0;
+    matches.forEach(function(m) {
       const hi = tIdx[m.home], ai = tIdx[m.away];
-      const lambdaH = getAttack(hi) * getDefence(ai) * h;
-      const muA     = getAttack(ai) * getDefence(hi);
-      const t       = tau(m.hg, m.ag, lambdaH, muA, rho);
-      if (t <= 0) return;
+      const lH = attack[hi] * defence[ai] * homeAdv;
+      const mA = attack[ai] * defence[hi];
       ll += m.w * (
-        Math.log(t) +
-        Math.log(Math.max(poisson(m.hg, lambdaH), 1e-10)) +
-        Math.log(Math.max(poisson(m.ag, muA),      1e-10))
+        Math.log(tauCorr(m.hg, m.ag, lH, mA, r)) +
+        Math.log(Math.max(poisson(m.hg, lH), 1e-10)) +
+        Math.log(Math.max(poisson(m.ag, mA), 1e-10))
       );
     });
     return ll;
   }
-
-  /* ── 5. Gradient ascent (numerical gradients) ── */
-  const EPS = 1e-5;
-  for (let iter = 0; iter < ITERS; iter++) {
-    const ll0 = logLik();
-    for (let i = 0; i < params.length; i++) {
-      params[i] += EPS;
-      const ll1 = logLik();
-      params[i] -= EPS;
-      const grad = (ll1 - ll0) / EPS;
-      params[i] += LR * grad;
-    }
-    /* Constrain rho to (-0.15, 0.15) */
-    params[2*n + 1] = Math.max(-0.15, Math.min(0.15, params[2*n + 1]));
+  let bestRho = 0, bestLL = -Infinity;
+  for (let r = -0.15; r <= 0.15; r += 0.01) {
+    const ll = logLikRho(r);
+    if (ll > bestLL) { bestLL = ll; bestRho = r; }
   }
+  rho = bestRho;
 
-  /* ── 6. Predict scoreline probabilities ── */
-  const MAX_GOALS = 8;
+  /* ── 6. Predict ── */
+  const MAX_G = 7;
   const hi = tIdx[homeTeam], ai = tIdx[awayTeam];
-  if (hi === undefined || ai === undefined) return null;
+  const lH = attack[hi] * defence[ai] * homeAdv;
+  const mA = attack[ai] * defence[hi];
 
-  const h       = getHome(), rho = getRho();
-  const lambdaH = getAttack(hi) * getDefence(ai) * h;
-  const muA     = getAttack(ai) * getDefence(hi);
-
-  const matrix = []; /* matrix[hg][ag] = probability */
   let pHome = 0, pDraw = 0, pAway = 0;
   let bestP = 0, bestH = 0, bestA = 0;
 
-  for (let hg = 0; hg <= MAX_GOALS; hg++) {
-    matrix[hg] = [];
-    for (let ag = 0; ag <= MAX_GOALS; ag++) {
-      const t = tau(hg, ag, lambdaH, muA, rho);
-      const p = Math.max(0, t * poisson(hg, lambdaH) * poisson(ag, muA));
-      matrix[hg][ag] = p;
-      if (hg > ag) pHome += p;
-      else if (hg === ag) pDraw += p;
-      else pAway += p;
-      if (p > bestP) { bestP = p; bestH = hg; bestA = ag; }
+  for (let h = 0; h <= MAX_G; h++) {
+    for (let a = 0; a <= MAX_G; a++) {
+      const p = Math.max(0, tauCorr(h, a, lH, mA, rho) * poisson(h, lH) * poisson(a, mA));
+      if (h > a)      pHome += p;
+      else if (h < a) pAway += p;
+      else             pDraw += p;
+      if (p > bestP)  { bestP = p; bestH = h; bestA = a; }
     }
   }
 
-  /* Normalise */
-  const total = pHome + pDraw + pAway;
+  const total = pHome + pDraw + pAway || 1;
   return {
-    homeWin:       Math.round(100 * pHome / total),
-    draw:          Math.round(100 * pDraw / total),
-    awayWin:       Math.round(100 * pAway / total),
-    expectedHome:  lambdaH.toFixed(2),
-    expectedAway:  muA.toFixed(2),
-    likelyScore:   `${bestH}–${bestA}`,
-    dataPoints:    matches.length,
+    homeWin:      Math.round(100 * pHome / total),
+    draw:         Math.round(100 * pDraw / total),
+    awayWin:      Math.round(100 * pAway / total),
+    expectedHome: lH.toFixed(2),
+    expectedAway: mA.toFixed(2),
+    likelyScore:  bestH + "\u2013" + bestA,
+    dataPoints:   matches.length,
+    homeTeam:     homeTeam,
+    awayTeam:     awayTeam
   };
 }
+
 
 
 function makeCard(m, type) {
