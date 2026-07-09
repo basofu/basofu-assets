@@ -1038,6 +1038,7 @@
       p.position = offset + p.divPos;
     });
 
+    let posChart = null;
 
     /* ── CUSTOM DRAWING ────────────────────────────────────────────
        Chart.js 4 inline plugins go in the top-level plugins array
