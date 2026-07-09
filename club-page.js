@@ -53,9 +53,11 @@
 
   function fmtDate (s) {
     if (!s) return "";
-    const d = new Date(s);
+    /* Parse ISO dates (YYYY-MM-DD) as local date to avoid UTC timezone shift */
+    const iso = String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const d   = iso ? new Date(+iso[1], +iso[2]-1, +iso[3]) : new Date(s);
     if (isNaN(d)) return s;
-    return d.toLocaleDateString("pt-CV", { day:"numeric", month:"short", year:"2-digit" });
+    return d.toLocaleDateString("pt-CV", { day:"numeric", month:"short", year:"numeric" });
   }
 
   /* parseRosterCell removed — roster now loaded live from Players sheet */
@@ -125,7 +127,11 @@
 
     const [metaArr, allRows, champRows, playerRows] = await Promise.all([
       BASOFU.getClubsMeta(ISLAND, SHORT_NAME),
-      BASOFU.getResults(ISLAND),
+      /* Fetch island results + national results in parallel */
+      Promise.all([
+        BASOFU.getResults(ISLAND),
+        BASOFU.getResults("National").catch(() => [])
+      ]).then(([regional, national]) => [...regional, ...national]),
       BASOFU.getHonorsRaw(),
       BASOFU.getPlayers(ISLAND)
     ]);
@@ -238,7 +244,14 @@
 
     const isPlayed = m => {
       const g = String(m.gp || "").trim();
-      return g === "FT" || (g !== "" && !isNaN(g) && +g > 0);
+      return g === "FT" || (m.home_goals != null && m.away_goals != null && g !== "Upcoming" && g !== "");
+    };
+    const isLiveMatch = m => {
+      const g = String(m.gp || "").trim();
+      return g !== "" && g !== "FT" && !isNaN(Number(g));
+    };
+    const isUpcomingMatch = m => {
+      return m.home_goals == null && m.away_goals == null && !isLiveMatch(m);
     };
 
     /* Seasons */
@@ -246,12 +259,19 @@
       .sort().reverse();
     const latestSeason = seasons[0] || "";
 
-    /* Recent results: FT matches, all competitions, latest N */
-    const recentMatches = clubMatches
+    /* Sort all club matches by date */
+    const datedClubMatches = clubMatches
+      .map(m => ({ ...m, _date: BASOFU.parseDate(m.date) }))
+      .filter(m => m._date);
+
+    /* Live, upcoming and recent */
+    const liveMatches     = datedClubMatches.filter(isLiveMatch)
+      .sort((a,b) => a._date - b._date).slice(0, 10);
+    const upcomingMatches = datedClubMatches.filter(isUpcomingMatch)
+      .sort((a,b) => a._date - b._date).slice(0, 10);
+    const recentMatches   = datedClubMatches
       .filter(isPlayed)
       .filter(m => m.home_goals != null && m.away_goals != null)
-      .map(m => ({ ...m, _date: BASOFU.parseDate(m.date) }))
-      .filter(m => m._date)
       .sort((a, b) => b._date - a._date)
       .slice(0, N_RECENT);
 
@@ -456,42 +476,152 @@
       /* Weekly positions for drill-down */
     });
 
-    /* Recent results */
-    const resultsHTML = recentMatches.length
-      ? recentMatches.map(m => {
-          const isHome = norm(m.home_full) === norm(FULL_NAME);
-          const hg = m.home_goals, ag = m.away_goals;
-          const myGoals  = isHome ? hg : ag;
-          const oppGoals = isHome ? ag : hg;
-          const oppName  = isHome ? (m.away_short || m.away_full) : (m.home_short || m.home_full);
-          const oppLogo  = isHome ? m.away_logo : m.home_logo;
-          const myLogo   = isHome ? m.home_logo : m.away_logo;
-          const result   = myGoals > oppGoals ? "W" : myGoals < oppGoals ? "L" : "D";
-          const pillCls  = result === "W" ? "bsf-club__result-pill--w"
-                         : result === "L" ? "bsf-club__result-pill--l"
-                         : "bsf-club__result-pill--d";
-          const scoreStr = isHome ? `${hg} – ${ag}` : `${ag} – ${hg}`;
+    /* ── MATCH CARDS (Live / Upcoming / Recent) ───────────────── */
+    function makeClubCard(m, type, allForH2H) {
+      const isHome   = norm(m.home_full) === norm(FULL_NAME) || norm(m.home_short) === norm(SHORT_NAME);
+      const hg       = type !== "upcoming" && m.home_goals != null ? m.home_goals : null;
+      const ag       = type !== "upcoming" && m.away_goals != null ? m.away_goals : null;
+      const g        = String(m.gp || "").trim();
+      const min      = type === "live" && !isNaN(Number(g)) ? g + "\u2032" : "";
+      const hLogo    = m.home_logo || "";
+      const aLogo    = m.away_logo || "";
+      const hShort   = m.home_short || m.home_full || "";
+      const aShort   = m.away_short || m.away_full || "";
+      const hPage    = norm(hShort) === norm(SHORT_NAME) ? "" : "";
+      const aPage    = norm(aShort) === norm(SHORT_NAME) ? "" : "";
+      const hWon     = hg !== null && ag !== null && hg > ag;
+      const aWon     = hg !== null && ag !== null && ag > hg;
+      const liveDot  = type === "live"
+        ? "<span style=\"display:inline-block;width:6px;height:6px;border-radius:50%;background:#C2A14A;margin-right:4px;animation:bsf-pulse 1.4s infinite;vertical-align:middle;\"></span>"
+        : "";
+      const hLogoHTML = hLogo ? "<img src=\"" + esc(hLogo) + "\" class=\"ko-logo\" alt=\"\">": "";
+      const aLogoHTML = aLogo ? "<img src=\"" + esc(aLogo) + "\" class=\"ko-logo\" alt=\"\">": "";
 
-          return `
-            <div class="bsf-club__result">
-              <span class="bsf-club__result-pill ${pillCls}">${result}</span>
-              <span class="bsf-club__result-date">${fmtDate(m.date)}</span>
-              <span class="bsf-club__result-comp">${esc(m.league)}</span>
-              <div class="bsf-club__result-teams">
-                <div class="bsf-club__result-team">
-                  ${myLogo ? `<img src="${esc(myLogo)}" alt="">` : ""}
-                  <span style="font-weight:700;color:var(--navy)">${esc(SHORT_NAME)}</span>
-                </div>
-                <span class="bsf-club__result-score">${scoreStr}</span>
-                <div class="bsf-club__result-team">
-                  ${oppLogo ? `<img src="${esc(oppLogo)}" alt="">` : ""}
-                  <span>${esc(oppName)}</span>
-                </div>
-              </div>
-            </div>`;
-        }).join("")
-      : `<p style="font-size:11px;color:var(--muted);">No recent results found.</p>`;
+      const el = document.createElement("div");
+      el.className = "ko-match ko-animate";
+      el.style.cssText = "flex:0 0 auto;min-width:240px;max-width:260px;scroll-snap-align:start;";
+      el.innerHTML =
+        "<div class=\"ko-date\">" + liveDot + esc(fmtDate(m.date)) + " &middot; " + esc(m.league) + (min ? " &middot; <strong>" + min + "</strong>" : "") + "</div>" +
+        "<div class=\"ko-team " + (hWon ? "ko-winner" : aWon ? "ko-loser" : "") + "\">" +
+          "<div class=\"ko-team-left\">" + hLogoHTML + "<span class=\"ko-team-name\">" + esc(hShort) + "</span></div>" +
+          "<span class=\"ko-score\">" + (hg !== null ? hg : "") + "</span>" +
+        "</div>" +
+        "<div class=\"ko-team " + (aWon ? "ko-winner" : hWon ? "ko-loser" : "") + "\">" +
+          "<div class=\"ko-team-left\">" + aLogoHTML + "<span class=\"ko-team-name\">" + esc(aShort) + "</span></div>" +
+          "<span class=\"ko-score\">" + (ag !== null ? ag : "") + "</span>" +
+        "</div>";
 
+      /* H2H tooltip for upcoming */
+      if (type === "upcoming" && allForH2H) {
+        const oppKey = isHome ? norm(aShort) : norm(hShort);
+        const h2h = allForH2H.filter(r =>
+          r.home_goals != null && r.away_goals != null &&
+          ((norm(r.home_short) === norm(SHORT_NAME) && norm(r.away_short) === oppKey) ||
+           (norm(r.away_short) === norm(SHORT_NAME) && norm(r.home_short) === oppKey))
+        ).map(r => ({
+          ...r, _d: BASOFU.parseDate(r.date)
+        })).filter(r => r._d).sort((a,b) => b._d - a._d).slice(0,6).reverse()
+         .map(r => {
+           const myGoals  = norm(r.home_short) === norm(SHORT_NAME) ? r.home_goals : r.away_goals;
+           const oppGoals = norm(r.home_short) === norm(SHORT_NAME) ? r.away_goals : r.home_goals;
+           return { diff: myGoals - oppGoals };
+         });
+
+        if (h2h.length) {
+          let tip = null;
+          el.addEventListener("mouseenter", function(e) {
+            if (!tip) {
+              tip = document.createElement("div");
+              Object.assign(tip.style, {
+                position:"fixed",zIndex:"9999",pointerEvents:"none",
+                background:"rgba(255,255,255,0.98)",border:"1px solid #ccc",
+                borderRadius:"8px",padding:"10px 12px",
+                boxShadow:"0 2px 10px rgba(0,0,0,0.12)",
+                fontFamily:"Inter,system-ui,sans-serif",fontSize:"12px",maxWidth:"220px"
+              });
+              var w=180,h=80,pad=8,baseY=40;
+              var maxA = Math.max(1,Math.max.apply(null,h2h.map(function(p){return Math.abs(p.diff);})));
+              var bw = Math.max(8,Math.floor((w-pad*2)/h2h.length)-4);
+              var bars = h2h.map(function(p,i){
+                if(!p.diff) return "";
+                var x=pad+i*(bw+4), bh=Math.round(Math.abs(p.diff)/maxA*(baseY-pad));
+                var y=p.diff>0?baseY-bh:baseY;
+                return "<rect x=\""+x+"\" y=\""+y+"\" width=\""+bw+"\" height=\""+bh+"\" rx=\"2\" fill=\"#003893\"/>";
+              }).join("");
+              tip.innerHTML = "<div style=\"font-weight:600;margin-bottom:4px;\">Head-to-Head</div>" +
+                "<div style=\"color:#888;font-size:10px;margin-bottom:8px;\">Goal diff for " + esc(SHORT_NAME) + "</div>" +
+                "<svg width=\""+w+"\" height=\""+h+"\" viewBox=\"0 0 "+w+" "+h+"\">" +
+                "<line x1=\""+pad+"\" y1=\""+baseY+"\" x2=\""+(w-pad)+"\" y2=\""+baseY+"\" stroke=\"#ccc\"/>" +
+                bars + "</svg>";
+              document.body.appendChild(tip);
+            }
+            tip.style.display = "block";
+            tip.style.left = (e.clientX+14)+"px";
+            tip.style.top  = (e.clientY+14)+"px";
+          });
+          el.addEventListener("mousemove", function(e) {
+            if(tip){tip.style.left=(e.clientX+14)+"px";tip.style.top=(e.clientY+14)+"px";}
+          });
+          el.addEventListener("mouseleave", function() { if(tip) tip.style.display="none"; });
+        }
+      }
+      return el;
+    }
+
+    function makeClubCarousel(id, matches, type, allForH2H) {
+      var wrap = document.createElement("div");
+      wrap.style.cssText = "display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;";
+      var btnL = document.createElement("button");
+      btnL.className = "bsf-region__carousel-btn";
+      btnL.textContent = "\u25C4";
+      var track = document.createElement("div");
+      track.id = id;
+      track.style.cssText = "display:flex;gap:1rem;overflow-x:auto;scroll-snap-type:x mandatory;scroll-behavior:smooth;padding-bottom:0.5rem;flex:1;min-width:0;";
+      var btnR = document.createElement("button");
+      btnR.className = "bsf-region__carousel-btn";
+      btnR.textContent = "\u25BA";
+      btnL.onclick = function(){ track.scrollBy({left:-280,behavior:"smooth"}); };
+      btnR.onclick = function(){ track.scrollBy({left:280,behavior:"smooth"}); };
+      matches.forEach(function(m){ track.appendChild(makeClubCard(m, type, allForH2H)); });
+      wrap.appendChild(btnL); wrap.appendChild(track); wrap.appendChild(btnR);
+      return wrap;
+    }
+
+    /* Build tabbed results section */
+    var resultsTabs = [
+      liveMatches.length     ? {key:"live",     label:liveMatches.length+" LIVE",  matches:liveMatches,     type:"live",     h2h:null} : null,
+      upcomingMatches.length ? {key:"upcoming", label:"UPCOMING",                  matches:upcomingMatches, type:"upcoming", h2h:normAllRows} : null,
+      recentMatches.length   ? {key:"recent",   label:"RESULTS",                   matches:recentMatches,   type:"recent",   h2h:null} : null,
+    ].filter(Boolean);
+
+    var resultsHTML = "";
+    if (resultsTabs.length) {
+      var defaultTab = resultsTabs[0].key;
+      var tabsEl = document.createElement("div");
+      tabsEl.className = "bsf-results-tabs";
+      var panelsEl = document.createElement("div");
+      resultsTabs.forEach(function(tab) {
+        var btn = document.createElement("button");
+        btn.className = "bsf-results-tab" + (tab.key === defaultTab ? " active" : "");
+        btn.dataset.tab = tab.key;
+        btn.textContent = tab.label;
+        btn.onclick = function() {
+          tabsEl.querySelectorAll(".bsf-results-tab").forEach(function(b){ b.classList.remove("active"); });
+          btn.classList.add("active");
+          panelsEl.querySelectorAll(".bsf-results-panel").forEach(function(p){
+            p.style.display = p.dataset.panel === tab.key ? "" : "none";
+          });
+        };
+        tabsEl.appendChild(btn);
+
+        var panel = document.createElement("div");
+        panel.className = "bsf-results-panel";
+        panel.dataset.panel = tab.key;
+        panel.style.display = tab.key === defaultTab ? "" : "none";
+        panel.appendChild(makeClubCarousel("bsf-club-carousel-"+tab.key, tab.matches, tab.type, tab.h2h));
+        panelsEl.appendChild(panel);
+      });
+    }
     /* ── HONOURS — scraped from Champions sheet ─────────────────
        Sheet columns: Year | Winner | Runner Up | Competition | Location | Notes
        We match FULL_NAME against Winner (case-insensitive, trimmed).
@@ -626,7 +756,11 @@
           ${kitSVG(kitAway1, kitAway2, "Away")}
         </div>
       </div>
-      `;
+      <p style="font-size:10px;color:var(--muted);margin-top:12px;">
+        Kit colours are drawn from the sheet columns <strong>Kit Home Primary</strong>,
+        <strong>Kit Home Secondary</strong>, <strong>Kit Away Primary</strong>,
+        <strong>Kit Away Secondary</strong>. Add hex values there to update automatically.
+      </p>`;
 
     /* Venue */
     const venueHTML = stadium
@@ -739,7 +873,7 @@
       <div class="bsf-club__grid">
         <div>
           <div class="bsf-club__section"><h2>Recent Results</h2></div>
-          <div class="bsf-club__results">${resultsHTML}</div>
+          <div id="bsf-club-results-mount"></div>
         </div>
         <div>
           <div class="bsf-club__section">
@@ -757,6 +891,18 @@
       <!-- HONOURS -->
       <div class="bsf-club__section"><h2>Honours</h2></div>
       ${honoursHTML}
+
+      <!-- SCORIGAMI -->
+      <div class="bsf-club__section"><h2>Scorigami</h2></div>
+      <div id="bsf-scorigami-controls" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+        <select id="bsf-scorigami-season" class="bsf-club__season-select" style="min-width:100px;">
+          <option value="">All Time</option>
+        </select>
+        <select id="bsf-scorigami-comp" class="bsf-club__season-select" style="min-width:160px;">
+          <option value="">All Competitions</option>
+        </select>
+      </div>
+      <div id="bsf-scorigami-mount" style="overflow-x:auto;"></div>
 
       <!-- POSITION CHART -->
       <div class="bsf-club__section"><h2>League Position by Season</h2></div>
@@ -798,9 +944,16 @@
     `;
 
 
-    /* Build honorSeasonSet from winsByComp for chart annotations */
+    /* Build honorSeasonSet and honorDetails from winsByComp for chart annotations */
     const honorSeasonSet = new Set();
-    Object.values(winsByComp).forEach(years => years.forEach(y => honorSeasonSet.add(y)));
+    const honorDetails   = {}; /* season → ["Campeonato Regional", "Taça ..."] */
+    Object.entries(winsByComp).forEach(([comp, years]) => {
+      years.forEach(y => {
+        honorSeasonSet.add(y);
+        if (!honorDetails[y]) honorDetails[y] = [];
+        honorDetails[y].push(comp);
+      });
+    });
 
     /* ── STANDINGS SEASON DROPDOWN ──────────────────────────────── */
     const standingsSel = document.getElementById("bsf-standings-season");
@@ -926,19 +1079,7 @@
         if (!chartArea) return;
         const cfg = chart.config.options._basofuCfg || {};
 
-        /* Trophy stars above honour-winning seasons */
-        if (!cfg.honorSeasons || !cfg.honorSeasons.size) return;
-        ctx.save();
-        (cfg.labels || []).forEach((label, i) => {
-          if (!cfg.honorSeasons.has(label)) return;
-          const x = scales.x.getPixelForValue(i);
-          ctx.fillStyle = "#C2A14A";
-          ctx.font = "13px serif";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "bottom";
-          ctx.fillText("★", x, chartArea.top - 2);
-        });
-        ctx.restore();
+        /* Stars removed — honour seasons shown via gold point colour and tooltip */
       }
     };
 
@@ -965,7 +1106,7 @@
       if (hasTrophies) {
         const ti = document.createElement("div");
         ti.style.cssText = "display:flex;align-items:center;gap:5px;font-family:'Inter',sans-serif;font-size:9px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#888;";
-        ti.innerHTML = `<span style="color:#C2A14A;font-size:13px;line-height:1;">★</span>Title won`;
+        ti.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#C2A14A;margin-right:2px;vertical-align:middle;"></span>Title won`;
         legend.appendChild(ti);
       }
       container.appendChild(legend);
@@ -1008,6 +1149,7 @@
             bands,
             gaps:         chartPoints,
             honorSeasons: honorSeasonSet,
+            honorDetails: honorDetails,
             labels:       allTimeLabels
           },
           responsive: true,
@@ -1031,12 +1173,22 @@
             legend: { display: false },
             tooltip: {
               callbacks: {
-                title: c  => chartPoints[c[0].dataIndex]?.season || "",
+                title: c => {
+                  const p = chartPoints[c[0].dataIndex];
+                  if (!p) return "";
+                  let t = p.season || "";
+                  /* Show titles won this season */
+                  const titles = (cfg.honorDetails || {})[p.season];
+                  if (titles && titles.length) {
+                    t += " · 🏆 " + titles.join(", ");
+                  }
+                  return t;
+                },
                 label: c => {
                   const p = chartPoints[c.dataIndex];
                   if (!p || p.position == null) return "No data / gap season";
                   const d = DIV_TEXT[p.division] || `Divisão ${p.division}`;
-                  return `Position ${p.position} · ${d}${honorSeasonSet.has(p.season) ? " ★" : ""}`;
+                  return `Position ${p.position}${d ? " · " + d : ""}`;
                 }
               }
             }
@@ -1084,8 +1236,136 @@
 
     }
 
+    /* Load Chart.js then render */
+    if (window.Chart) {
+      initChart();
+    } else {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js";
+      s.onload = initChart;
+      document.head.appendChild(s);
+
+    }
+
+    /* ── SCORIGAMI ─────────────────────────────────────────────── */
+    (function initScorigami() {
+      const mount    = document.getElementById("bsf-scorigami-mount");
+      const selSeas  = document.getElementById("bsf-scorigami-season");
+      const selComp  = document.getElementById("bsf-scorigami-comp");
+      if (!mount || !selSeas || !selComp) return;
+
+      /* Populate filter dropdowns */
+      const sgSeasons = [...new Set(normAllRows.map(m => m.season).filter(Boolean))]
+        .sort((a,b) => String(b).localeCompare(String(a)));
+      sgSeasons.forEach(s => {
+        const o = document.createElement("option");
+        o.value = s; o.textContent = s;
+        selSeas.appendChild(o);
+      });
+      const sgComps = [...new Set(normAllRows.map(m => m.league).filter(Boolean))].sort();
+      sgComps.forEach(c => {
+        const o = document.createElement("option");
+        o.value = c; o.textContent = c;
+        selComp.appendChild(o);
+      });
+
+      function renderScorigami() {
+        const season = selSeas.value;
+        const comp   = selComp.value;
+        const rows   = normAllRows.filter(m =>
+          m.home_goals != null && m.away_goals != null &&
+          (!season || m.season === season) &&
+          (!comp   || m.league === comp)
+        );
+
+        /* From club's perspective: goals for vs goals against */
+        const cells = {};
+        let maxFor = 0, maxAgainst = 0;
+        rows.forEach(m => {
+          const isHome = norm(m.home_full) === norm(FULL_NAME) || norm(m.home_short) === norm(SHORT_NAME);
+          const gf = isHome ? m.home_goals : m.away_goals;
+          const ga = isHome ? m.away_goals : m.home_goals;
+          if (gf == null || ga == null) return;
+          const key = gf + "," + ga;
+          cells[key] = (cells[key] || 0) + 1;
+          maxFor     = Math.max(maxFor,     gf);
+          maxAgainst = Math.max(maxAgainst, ga);
+        });
+
+        if (!Object.keys(cells).length) {
+          mount.innerHTML = "<p style='font-size:11px;color:var(--muted);'>No results to display.</p>";
+          return;
+        }
+
+        const maxCount = Math.max(...Object.values(cells));
+        const cellSize = Math.max(18, Math.min(36, Math.floor(500 / Math.max(maxFor, maxAgainst, 5))));
+        const pad      = 28;
+
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' " +
+          "width='" + ((maxFor+1)*cellSize + pad) + "' " +
+          "height='" + ((maxAgainst+1)*cellSize + pad) + "' " +
+          "style='font-family:Inter,system-ui,sans-serif;'>";
+
+        /* Axis labels */
+        for (let gf = 0; gf <= maxFor; gf++) {
+          svg += "<text x='" + (pad + gf*cellSize + cellSize/2) + "' y='" + (pad-6) + "' " +
+            "text-anchor='middle' font-size='9' fill='#888'>" + gf + "</text>";
+        }
+        for (let ga = 0; ga <= maxAgainst; ga++) {
+          svg += "<text x='" + (pad-4) + "' y='" + (pad + ga*cellSize + cellSize/2 + 3) + "' " +
+            "text-anchor='end' font-size='9' fill='#888'>" + ga + "</text>";
+        }
+
+        /* Grid cells */
+        for (let gf = 0; gf <= maxFor; gf++) {
+          for (let ga = 0; ga <= maxAgainst; ga++) {
+            const key   = gf + "," + ga;
+            const count = cells[key] || 0;
+            const x     = pad + gf * cellSize;
+            const y     = pad + ga * cellSize;
+            /* Colour: win=green, draw=gold, loss=red, unseen=light grey */
+            let fill;
+            if (!count) {
+              fill = "#f5f5f5";
+            } else if (gf > ga) {
+              const intensity = 0.3 + 0.7 * (count / maxCount);
+              const g = Math.round(100 + 55 * intensity);
+              fill = "rgb(30," + g + ",30)";
+            } else if (gf === ga) {
+              const intensity = 0.3 + 0.7 * (count / maxCount);
+              const r = Math.round(180 + 30 * intensity);
+              fill = "rgb(" + r + "," + Math.round(140*intensity) + ",20)";
+            } else {
+              const intensity = 0.3 + 0.7 * (count / maxCount);
+              const r = Math.round(150 + 80 * intensity);
+              fill = "rgb(" + r + ",30,30)";
+            }
+            svg += "<rect x='" + x + "' y='" + y + "' width='" + (cellSize-1) + "' height='" + (cellSize-1) + "' " +
+              "fill='" + fill + "' rx='2'>" +
+              "<title>" + gf + "–" + ga + (count ? " (" + count + "×)" : " (never)") + "</title>" +
+              "</rect>";
+            if (count && cellSize >= 20) {
+              svg += "<text x='" + (x + cellSize/2) + "' y='" + (y + cellSize/2 + 3) + "' " +
+                "text-anchor='middle' font-size='" + Math.min(10, cellSize*0.35) + "' " +
+                "fill='white' font-weight='600'>" + count + "</text>";
+            }
+          }
+        }
+
+        /* Axis titles */
+        svg += "<text x='" + (pad + (maxFor+1)*cellSize/2) + "' y='10' " +
+          "text-anchor='middle' font-size='9' fill='#555'>Goals For (" + SHORT_NAME + ")</text>";
+        svg += "</svg>";
+
+        mount.innerHTML = svg;
+      }
+
+      renderScorigami();
+      selSeas.addEventListener("change", renderScorigami);
+      selComp.addEventListener("change", renderScorigami);
+    })();
+
     /* ── NEWS CAROUSEL ────────────────────────────────────────────
-       Fetches Squarespace blog JSON API filtered by the club's tag.
        Tag must match SHORT_NAME exactly (case-insensitive) on each post.
        Falls back gracefully if the blog endpoint is unavailable.
     ─────────────────────────────────────────────────────────── */
