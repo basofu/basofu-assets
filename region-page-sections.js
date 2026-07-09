@@ -49,9 +49,8 @@ function isFinished(m) {
   return hasGoals && !isLive(m);
 }
 function isUpcoming(m) {
-  const hasGoals = m.hg !== null && m.hg !== undefined && m.hg !== "" &&
-                   m.ag !== null && m.ag !== undefined && m.ag !== "";
-  return !hasGoals && !isLive(m);
+  const g = String(m.gp || "").trim();
+  return g === "Upcoming" || (g === "" && m.hg == null && m.ag == null);
 }
 
 /* ── CONFIG ──────────────────────────────────────────────── */
@@ -103,8 +102,8 @@ const allRows = (resultsData || []).map(r => ({
   awayShort: r.awayShort || r.away_short || "",
   homeLogo:  extractImgSrc(r.homeLogo  || r.home_logo  || ""),
   awayLogo:  extractImgSrc(r.awayLogo  || r.away_logo  || ""),
-  hg: (r.hg !== null && r.hg !== undefined && r.hg !== "") ? Number(r.hg) : null,
-  ag: (r.ag !== null && r.ag !== undefined && r.ag !== "") ? Number(r.ag) : null,
+  hg: (r.hg !== "" && r.hg != null && r.hg !== undefined) ? Number(r.hg) : null,
+  ag: (r.ag !== "" && r.ag != null && r.ag !== undefined) ? Number(r.ag) : null,
   gp: r.gp || ""
 }));
 
