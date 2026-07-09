@@ -1331,35 +1331,32 @@
             const count = cells[key] || 0;
             const x     = pad + gf * cellSize;
             const y     = pad + ga * cellSize;
-            /* Basofu palette: navy win, gold draw, red loss, rule grey unseen */
+            /* Basofu palette — muted: navy win, gold draw, red loss, rule grey unseen */
             let fill;
             if (!count) {
-              fill = "#f0f0ee"; /* --rule colour for unseen */
-            } else if (gf > ga) {
-              /* Win: navy #2F3E46 scaled by frequency */
-              const intensity = 0.35 + 0.65 * (count / maxCount);
-              const r = Math.round(47  * intensity);
-              const g = Math.round(62  * intensity);
-              const b = Math.round(70  * intensity + 60 * (1 - intensity));
-              fill = "rgb(" + r + "," + g + "," + b + ")";
-            } else if (gf === ga) {
-              /* Draw: gold #C2A14A scaled by frequency */
-              const intensity = 0.4 + 0.6 * (count / maxCount);
-              fill = "rgba(194," + Math.round(161*intensity) + "," + Math.round(74*intensity) + ",1)";
+              fill = "#f0f0ee";
             } else {
-              /* Loss: red #A44A3F scaled by frequency */
-              const intensity = 0.35 + 0.65 * (count / maxCount);
-              const r = Math.round(164 * intensity + 40 * (1 - intensity));
-              fill = "rgb(" + r + "," + Math.round(74*intensity) + "," + Math.round(63*intensity) + ")";
+              /* Base colours mixed with white for muted effect */
+              const t = 0.25 + 0.55 * (count / maxCount); /* 0.25–0.80 range keeps colours soft */
+              if (gf > ga) {
+                /* Win: muted navy */
+                fill = "rgba(47,62,70," + t + ")";
+              } else if (gf === ga) {
+                /* Draw: muted gold */
+                fill = "rgba(194,161,74," + t + ")";
+              } else {
+                /* Loss: muted red */
+                fill = "rgba(164,74,63," + t + ")";
+              }
             }
             svg += "<rect x='" + x + "' y='" + y + "' width='" + (cellSize-1) + "' height='" + (cellSize-1) + "' " +
               "fill='" + fill + "' rx='2'>" +
               "<title>" + gf + "–" + ga + (count ? " (" + count + "×)" : " (never)") + "</title>" +
               "</rect>";
-            if (count && cellSize >= 20) {
+            if (count && cellSize >= 22) {
               svg += "<text x='" + (x + cellSize/2) + "' y='" + (y + cellSize/2 + 3) + "' " +
                 "text-anchor='middle' font-size='" + Math.min(10, cellSize*0.35) + "' " +
-                "fill='white' font-weight='600'>" + count + "</text>";
+                "fill='rgba(255,255,255,0.9)' font-weight='600'>" + count + "</text>";
             }
           }
         }
