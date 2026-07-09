@@ -202,8 +202,8 @@
       away_short: r.awayShort || r["Away Short"]      || "",
       home_logo:  r.homeLogo  || r["Home Logo"]       || "",
       away_logo:  r.awayLogo  || r["Away Logo"]       || "",
-      home_goals: (r.hg !== "" && r.hg != null) ? Number(r.hg) : (r["Home Goals"] !== "" ? Number(r["Home Goals"]) : null),
-      away_goals: (r.ag !== "" && r.ag != null) ? Number(r.ag) : (r["Away Goals"] !== "" ? Number(r["Away Goals"]) : null),
+      home_goals: (r.hg !== "" && r.hg != null && r.hg !== undefined) ? Number(r.hg) : null,
+      away_goals: (r.ag !== "" && r.ag != null && r.ag !== undefined) ? Number(r.ag) : null,
       gp:         r.gp        || r["Game Progress"]   || "",
       notes:      r.notes     || r["Notes"]           || ""
     });
@@ -233,25 +233,27 @@
 
     /* normAllRows already has the right field names from the normRow mapping above.
        Just filter to matches involving this club. */
-    const clubMatches = normAllRows.filter(m =>
-      m.home_full === FULL_NAME || m.away_full === FULL_NAME ||
-      norm(m.home_full) === norm(FULL_NAME) || norm(m.away_full) === norm(FULL_NAME)
-    );
-
     const isThisClub = m =>
-      m.home_full === FULL_NAME || m.away_full === FULL_NAME ||
-      norm(m.home_full) === norm(FULL_NAME) || norm(m.away_full) === norm(FULL_NAME);
+      norm(m.home_full)  === norm(FULL_NAME)  ||
+      norm(m.away_full)  === norm(FULL_NAME)  ||
+      norm(m.home_short) === norm(SHORT_NAME) ||
+      norm(m.away_short) === norm(SHORT_NAME);
+
+    const clubMatches = normAllRows.filter(isThisClub);
 
     const isPlayed = m => {
       const g = String(m.gp || "").trim();
-      return g === "FT" || (m.home_goals != null && m.away_goals != null && g !== "Upcoming" && g !== "");
+      if (g === "Upcoming" || g === "") return false;
+      return g === "FT" || (m.home_goals != null && m.away_goals != null);
     };
     const isLiveMatch = m => {
       const g = String(m.gp || "").trim();
       return g !== "" && g !== "FT" && !isNaN(Number(g));
     };
     const isUpcomingMatch = m => {
-      return m.home_goals == null && m.away_goals == null && !isLiveMatch(m);
+      const g = String(m.gp || "").trim();
+      /* Upcoming: gp is "Upcoming" or blank, and no goals recorded */
+      return g === "Upcoming" || (g === "" && m.home_goals == null && m.away_goals == null);
     };
 
     /* Seasons */
@@ -1337,7 +1339,7 @@
               fill = "#f0f0ee";
             } else {
               /* Base colours mixed with white for muted effect */
-              const t = 0.25 + 0.55 * (count / maxCount); /* 0.25–0.80 range keeps colours soft */
+              const t = 0.35 + 0.55 * (count / maxCount); /* 0.35–0.90 range — slightly richer */
               if (gf > ga) {
                 /* Win: muted navy */
                 fill = "rgba(47,62,70," + t + ")";
