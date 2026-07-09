@@ -437,7 +437,7 @@
     /* For each season: record per-division tables AND this club's position.
        divSizeBySeasonDiv[season][div] = number of teams in that division.
        This lets us draw ALL division bands even if the club never played in Div 2. */
-    const chartPoints      = []; /* { season, position, division, divSize, allDivSizes } */
+    const chartPoints      = []; /* { season, position, divPos, division, divSize, allDivSizes } */
     let   maxOverallPos    = 0;
 
     allSeasons.forEach(season => {
@@ -453,7 +453,7 @@
       const allDivSizes   = {};
       let offset = 0;
       let found  = false;
-      let clubDiv = null, clubPos = null;
+      let clubDiv = null, clubPos = null, clubDivPos = null;
 
       sortedDivKeys.forEach(d => {
         const table = buildStandings(divs[d]);
@@ -462,9 +462,10 @@
           norm(r.full) === thisNorm || norm(r.short) === norm(SHORT_NAME)
         );
         if (idx >= 0 && !found) {
-          clubPos = offset + idx + 1;
-          clubDiv = d;
-          found   = true;
+          clubDivPos = idx + 1;           /* position within this division */
+          clubPos    = offset + idx + 1;  /* overall position for y-axis */
+          clubDiv    = d;
+          found      = true;
         }
         offset += table.length;
       });
@@ -473,9 +474,10 @@
       chartPoints.push({
         season,
         position:    clubPos,
+        divPos:      clubDivPos,    /* position within own division */
         division:    clubDiv,
         divSize:     clubDiv ? allDivSizes[clubDiv] : 0,
-        allDivSizes  /* { "1": n, "2": n, ... } for ALL divs this season */
+        allDivSizes  /* per-season sizes for accurate band rendering */
       });
 
       /* Weekly positions for drill-down */
@@ -1024,7 +1026,18 @@
       });
     });
 
-    let posChart = null;
+    /* Recalculate overall y-axis position using globalDivMaxSize so points
+       always land in the correct band regardless of per-season div size.
+       divPos (position within own division) is preserved for the tooltip. */
+    chartPoints.forEach(p => {
+      if (p.division == null || p.divPos == null) return;
+      let offset = 0;
+      Object.keys(globalDivMaxSize).sort().forEach(d => {
+        if (d < p.division) offset += globalDivMaxSize[d];
+      });
+      p.position = offset + p.divPos;
+    });
+
 
     /* ── CUSTOM DRAWING ────────────────────────────────────────────
        Chart.js 4 inline plugins go in the top-level plugins array
@@ -1200,8 +1213,10 @@
                 label: c => {
                   const p = chartPoints[c.dataIndex];
                   if (!p || p.position == null) return "No data / gap season";
-                  const d = DIV_TEXT[p.division] || `Divisão ${p.division}`;
-                  return `Position ${p.position}${d ? " · " + d : ""}`;
+                  const d    = DIV_TEXT[p.division] || (p.division ? `${p.division}ª Divisão` : "");
+                  const pos  = p.divPos || p.position;
+                  const ord  = pos === 1 ? "1st" : pos === 2 ? "2nd" : pos === 3 ? "3rd" : `${pos}th`;
+                  return `${ord}${d ? " · " + d : ""}`;
                 }
               }
             }
