@@ -91,15 +91,45 @@
   try {
     const BASOFU = await waitForBasofu();
 
+    /* National-level clubs are drawn from every island, and the GAS
+       clubs endpoint is filtered by Island, so we fetch each island
+       in parallel and merge. NOTE: verify these match the exact
+       spelling/accents used in your sheet's "Island" column. */
+    const ISLANDS = ["Santiago","São Vicente","Santo Antão","Fogo","Sal","Boa Vista","Maio","São Nicolau","Brava"];
+
     /* ── FETCH ─────────────────────────────────────────────────
        Merge Region="National" with a defensive Region="Inter-ilhas"
        fetch, deduped, in case Inter-ilhas lives under its own
        Region value rather than under National. */
-    const [nationalRows, interIlhasRowsMaybe, honoursData] = await Promise.all([
+    const [nationalRows, interIlhasRowsMaybe, honoursData, clubsByIsland] = await Promise.all([
       BASOFU.getResults("National"),
       BASOFU.getResults("Inter-ilhas").catch(() => []),
-      BASOFU.getHonorsRaw()
+      BASOFU.getHonorsRaw(),
+      Promise.all(ISLANDS.map(isl => BASOFU.getClubsMeta(isl).catch(() => [])))
     ]);
+
+    /* ── CLUB PAGE LINKS (Page column, Clubs sheet) ───────────── */
+    const clubPageMap = {};
+    (clubsByIsland || []).forEach(list => {
+      (list || []).forEach(c => {
+        const page = (c.page || c["Page"] || "").trim();
+        if (!page) return;
+        const shortKey = norm(c.shortName || c["Short Name"] || "");
+        const fullKey  = norm(c.team      || c["Team"]       || "");
+        if (shortKey) clubPageMap[shortKey] = page;
+        if (fullKey)  clubPageMap[fullKey]  = page;
+      });
+    });
+    /* Wraps a team name in a link to its club page when we have one,
+       otherwise falls back to a plain span (same ko-team-name class
+       either way, so styling stays consistent). */
+    function teamLink(name) {
+      const label = esc(name || "");
+      const link  = clubPageMap[norm(name || "")] || "";
+      return link
+        ? "<a href=\""+esc(link)+"\" class=\"ko-team-name bsf-national__club-link\">"+label+"</a>"
+        : "<span class=\"ko-team-name\">"+label+"</span>";
+    }
 
     function normRow(r) {
       return {
@@ -258,11 +288,11 @@
       el.innerHTML =
         "<div class=\"ko-date\">"+liveDot+esc(fmtDate(m.date))+" &middot; "+esc(m._comp ? m._comp.label : m.league)+(min?" &middot; <strong>"+min+"</strong>":"")+"</div>"+
         "<div class=\"ko-team "+(hWon?"ko-winner":aWon?"ko-loser":"")+"\">"+
-          "<div class=\"ko-team-left\">"+hLogoHTML+"<span class=\"ko-team-name\">"+esc(m.home_short||m.home_full)+"</span></div>"+
+          "<div class=\"ko-team-left\">"+hLogoHTML+teamLink(m.home_short||m.home_full)+"</div>"+
           "<span class=\"ko-score\">"+(hg!=null?hg:"")+"</span>"+
         "</div>"+
         "<div class=\"ko-team "+(aWon?"ko-winner":hWon?"ko-loser":"")+"\">"+
-          "<div class=\"ko-team-left\">"+aLogoHTML+"<span class=\"ko-team-name\">"+esc(m.away_short||m.away_full)+"</span></div>"+
+          "<div class=\"ko-team-left\">"+aLogoHTML+teamLink(m.away_short||m.away_full)+"</div>"+
           "<span class=\"ko-score\">"+(ag!=null?ag:"")+"</span>"+
         "</div>";
 
@@ -327,17 +357,22 @@
         const pos = idx+1;
         const promoted = pos <= 4;
         const gd = r.gf - r.ga;
+        const link = clubPageMap[norm(r.name)] || "";
+        const nameCell = link
+          ? "<a href=\""+esc(link)+"\" class=\"bsf-national__club-link\">"+esc(r.name)+"</a>"
+          : esc(r.name);
         return `<tr class="${promoted ? "bsf-national__promote" : ""}">
           <td class="col-pos">${pos}</td>
-          <td class="col-team">${esc(r.name)}${promoted ? " <span class=\"bsf-national__promote-tag\">→ KO</span>" : ""}</td>
+          <td class="col-team">${nameCell}${promoted ? " <span class=\"bsf-national__promote-tag\">→ KO</span>" : ""}</td>
           <td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td>
+          <td>${r.gf}</td><td>${r.ga}</td>
           <td>${gd>=0?"+":""}${gd}</td>
           <td class="col-pts">${r.pts}</td>
         </tr>`;
       }).join("");
       return `<div class="bsf-club__table-wrap">
         <table class="bsf-club__table">
-          <thead><tr><th>#</th><th style="text-align:left">Club</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr></thead>
+          <thead><tr><th>#</th><th style="text-align:left">Club</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead>
           <tbody>${rowsHTML}</tbody>
         </table>
       </div>`;
@@ -366,12 +401,16 @@
           aggB += isAHome ? leg.away_goals : leg.home_goals;
         }
         const scoreStr = (leg.home_goals!=null && leg.away_goals!=null) ? leg.home_goals+"–"+leg.away_goals : "vs";
-        return `<div class="ko-team"><div class="ko-team-left"><span class="ko-team-name">${esc(leg.home_short||leg.home_full)} ${scoreStr} ${esc(leg.away_short||leg.away_full)}</span></div></div>`;
+        return "<div class=\"ko-team\" style=\"justify-content:flex-start;gap:6px;\">"+
+          "<div class=\"ko-team-left\">"+teamLink(leg.home_short||leg.home_full)+"</div>"+
+          "<span>"+scoreStr+"</span>"+
+          "<div class=\"ko-team-left\">"+teamLink(leg.away_short||leg.away_full)+"</div>"+
+        "</div>";
       }).join("");
       const aggLabel = legs.length > 1 && played
-        ? `<div class="ko-date" style="margin-top:4px;">Aggregate: <strong>${esc(teamA)} ${aggA}–${aggB} ${esc(teamB)}</strong></div>`
+        ? "<div class=\"ko-date\" style=\"margin-top:4px;\">Aggregate: <strong>"+teamLink(teamA)+" "+aggA+"–"+aggB+" "+teamLink(teamB)+"</strong></div>"
         : "";
-      return `<div class="ko-match ko-animate" style="margin-bottom:10px;">
+      return `<div class="ko-match ko-animate" style="margin-bottom:10px;width:100%;max-width:100%;box-sizing:border-box;text-align:left;margin-left:0;margin-right:0;">
         <div class="ko-date">${esc(fmtDate(legs[0].date))}${legs.length>1 ? " · 2 legs" : ""}</div>
         ${legRows}
         ${aggLabel}
@@ -391,14 +430,15 @@
         return (ia<0?99:ia) - (ib<0?99:ib);
       });
       if (!roundKeys.length) return "";
-      return roundKeys.map(rk => {
+      const roundsHTML = roundKeys.map(rk => {
         const ties = groupTies(byRound[rk]);
         const label = rk.charAt(0).toUpperCase()+rk.slice(1);
-        return `<div style="margin-bottom:14px;">
+        return `<div style="margin-bottom:14px;width:100%;">
           <div style="font-size:9px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#888;margin-bottom:6px;">${esc(label)}</div>
           ${ties.map(renderTie).join("")}
         </div>`;
       }).join("");
+      return `<div class="bsf-national__knockout">${roundsHTML}</div>`;
     }
 
     /* ── CHAMPIONS (4 named competitions, per gender) ─────────── */
@@ -528,11 +568,20 @@
 
     /* ── SCOPED STYLES (injected once) ────────────────────────── */
     const styleHTML = `<style>
-      .bsf-national__cols { display:grid; grid-template-columns:1fr 1fr; gap:2rem; align-items:start; }
-      @media (max-width:900px) { .bsf-national__cols { grid-template-columns:1fr; gap:0; } .bsf-national__col { margin-bottom:2rem; } }
+      .bsf-national__cols, .bsf-national__cols * { box-sizing:border-box; }
+      .bsf-national__cols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:2rem; align-items:start; max-width:100%; overflow-x:hidden; }
+      .bsf-national__col { min-width:0; max-width:100%; overflow-x:hidden; }
+      @media (max-width:900px) { .bsf-national__cols { grid-template-columns:minmax(0,1fr); gap:0; } .bsf-national__col { margin-bottom:2rem; } }
       .bsf-national__col-header { font-family:'Inter',system-ui,sans-serif; font-size:11px; font-weight:700; letter-spacing:0.16em; text-transform:uppercase; color:#fff; background:#1C1C1C; padding:8px 12px; margin-bottom:14px; }
       .bsf-national__promote td { background:rgba(194,161,74,0.08); border-left:3px solid #C2A14A; }
-      .bsf-national__promote-tag { font-size:9px; font-weight:700; letter-spacing:0.06em; color:#C2A14A; }
+      .bsf-national__promote-tag { font-size:9px; font-weight:700; letter-spacing:0.06em; color:#C2A14A; white-space:nowrap; }
+      .bsf-national__club-link { color:inherit; text-decoration:none; border-bottom:1px solid transparent; }
+      .bsf-national__club-link:hover { border-bottom-color:currentColor; }
+      .bsf-national__col .bsf-club__table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; margin:0; padding:0; }
+      .bsf-national__col .bsf-club__table { width:100%; }
+      .bsf-national__col td, .bsf-national__col th { overflow-wrap:break-word; word-break:break-word; }
+      .bsf-national__knockout { width:100%; max-width:100%; margin:0; padding:0; }
+      .bsf-national__knockout .ko-match { overflow-wrap:break-word; word-break:break-word; }
     </style>`;
 
     /* ── RENDER (re-invoked in place whenever the season changes;
