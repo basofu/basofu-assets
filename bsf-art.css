@@ -1,0 +1,250 @@
+/* ============================================================
+   BASOFU — SHARED ARTICLE STYLESHEET (bsf-art.css)
+   Hosted on GitHub, served via jsDelivr CDN, loaded ONCE sitewide
+   from the header/footer code injection — NOT pasted inline into
+   individual article Code Blocks.
+
+   Why this exists: every bsf-art article was repeating this same
+   ~250-line <style> block inline, which pushed some articles right
+   up against Squarespace's Code Block character limit (~50,000
+   chars) and caused silent truncation mid-paste — a JS syntax
+   error ("Unexpected EOF") that killed script execution on the
+   whole page. Moving the CSS out fixes that at the root and means
+   every future article's Code Block only needs its HTML body.
+
+   ── PER-ARTICLE VARIATION VIA DATA ATTRIBUTES ───────────────
+   Hero duotone: set data-tone on .bsf-art__hero-sticky
+     <div class="bsf-art__hero-sticky" data-tone="gold"> … </div>
+     Options: (omit for navy/blue, the default) | "gold" | "red"
+
+   Inline figure duotone: set data-tone on .bsf-art__fig-wrap
+     <div class="bsf-art__fig-wrap" data-tone="blue|gold|red"> … </div>
+
+   Badge-style figures (small, centered, no duotone/grain — for
+   club crests rather than landscape photography): add the
+   bsf-art__fig--badge modifier class to the <figure>.
+   ============================================================ */
+
+.bsf-art {
+  --gold:   #C2A14A;
+  --navy:   #2F3E46;
+  --red:    #A44A3F;
+  --body:   #1C1C1C;
+  --muted:  #888888;
+  --rule:   #e8e8e6;
+  --ui:     'Inter', system-ui, sans-serif;
+  --serif:  'EB Garamond', Georgia, serif;
+
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+  background: #ffffff;
+  color: var(--body);
+  font-family: var(--serif);
+}
+
+.bsf-art__back {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--ui); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--muted); text-decoration: none;
+  padding-top: 48px; display: block; margin-bottom: 40px;
+}
+.bsf-art__back:hover { color: var(--navy); }
+.bsf-art__back::before { content: '← '; }
+
+.bsf-art__kicker {
+  border-top: 1px solid var(--navy); padding-top: 8px; margin-bottom: 20px;
+  display: flex; align-items: center; gap: 10px;
+}
+.bsf-art__kicker-section {
+  font-family: var(--ui); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--navy);
+}
+.bsf-art__kicker-sep { color: var(--rule); font-family: var(--ui); font-size: 9px; }
+.bsf-art__kicker-date { font-family: var(--ui); font-size: 9px; letter-spacing: 0.1em; color: var(--muted); }
+
+.bsf-art__headline {
+  font-family: var(--ui); font-size: clamp(28px, 6vw, 46px); font-weight: 700;
+  letter-spacing: -0.01em; text-transform: uppercase; color: var(--navy);
+  line-height: 1.0; margin: 0 0 20px;
+}
+
+.bsf-art__epigraph {
+  border-left: 2px solid var(--gold); padding: 4px 0 4px 16px; margin: 0 0 32px;
+  font-style: italic; font-size: 16px; line-height: 1.6; color: #555;
+}
+.bsf-art__epigraph cite {
+  display: block; margin-top: 8px; font-style: normal; font-family: var(--ui);
+  font-size: 9px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted);
+}
+
+.bsf-art__hero-outer { margin-left: -24px; margin-right: -24px; margin-bottom: 0; position: relative; }
+.bsf-art__hero-sticky {
+  position: sticky; top: 0; z-index: 0; overflow: hidden;
+  height: 70vh; min-height: 360px; max-height: 640px;
+}
+.bsf-art__hero-sticky img {
+  width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block;
+  filter: grayscale(100%) contrast(1.12) brightness(0.94);
+}
+.bsf-art__hero-sticky::before {
+  content: ''; position: absolute; inset: 0; background: var(--navy); opacity: 0.22;
+  mix-blend-mode: multiply; pointer-events: none; z-index: 1;
+}
+.bsf-art__hero-sticky[data-tone="gold"]::before { background: var(--gold); opacity: 0.22; }
+.bsf-art__hero-sticky[data-tone="red"]::before  { background: var(--red);  opacity: 0.22; }
+.bsf-art__hero-sticky::after {
+  content: ''; position: absolute; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 150 150' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='grain-hero'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain-hero)'/%3E%3C/svg%3E");
+  background-size: 180px 180px; opacity: 0.92; mix-blend-mode: overlay; pointer-events: none; z-index: 2;
+}
+.bsf-art__hero-fade {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 50px;
+  background: linear-gradient(to bottom, transparent, #ffffff); z-index: 3; pointer-events: none;
+}
+.bsf-art__hero-scroll-text {
+  position: relative; z-index: 4; background: #ffffff;
+  margin-top: calc(70vh - 60px); padding-top: 28px;
+}
+
+.bsf-art__fig { margin: 36px -24px; }
+.bsf-art__fig-wrap { position: relative; overflow: hidden; line-height: 0; }
+.bsf-art__fig-wrap img {
+  width: 100%; display: block; filter: grayscale(100%) contrast(1.12) brightness(0.94);
+}
+.bsf-art__fig-wrap::before {
+  content: ''; position: absolute; inset: 0; mix-blend-mode: multiply; opacity: 0; pointer-events: none; z-index: 1;
+}
+.bsf-art__fig-wrap::after {
+  content: ''; position: absolute; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 150 150' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='grain-inline'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain-inline)'/%3E%3C/svg%3E");
+  background-size: 120px 120px; opacity: 0.22; mix-blend-mode: overlay; pointer-events: none; z-index: 2;
+}
+.bsf-art__fig-wrap[data-tone="blue"]::before  { background: var(--navy); opacity: 0.22; }
+.bsf-art__fig-wrap[data-tone="gold"]::before  { background: var(--gold); opacity: 0.28; }
+.bsf-art__fig-wrap[data-tone="red"]::before   { background: var(--red);  opacity: 0.24; }
+
+/* Badge-style figures (club crests) — smaller, centered, no
+   duotone/grain treatment since these are logos, not photography */
+.bsf-art__fig--badge {
+  max-width: 220px; margin-left: auto; margin-right: auto;
+}
+.bsf-art__fig--badge .bsf-art__fig-wrap img { filter: none; }
+.bsf-art__fig--badge .bsf-art__fig-wrap::after { opacity: 0; }
+.bsf-art__fig--badge .bsf-art__fig-wrap::before { opacity: 0; }
+.bsf-art__fig--badge figcaption { text-align: center; padding-left: 0; padding-right: 0; }
+
+.bsf-art__fig figcaption {
+  font-family: var(--ui); font-size: 10px; letter-spacing: 0.06em; color: var(--muted);
+  line-height: 1.45; padding: 7px 24px 0; border-top: 1px solid var(--rule); margin-top: 6px; font-style: italic;
+}
+
+.bsf-art__body { font-size: 17px; line-height: 1.72; color: var(--body); }
+.bsf-art__body p { margin: 0 0 1.2em; }
+.bsf-art__body ul, .bsf-art__body ol { margin: 0 0 1.2em; padding-left: 22px; }
+.bsf-art__body li { margin-bottom: 0.5em; }
+.bsf-art__body--first p:first-child::first-letter {
+  font-family: var(--ui); font-size: 56px; font-weight: 700; line-height: 0.82;
+  float: left; margin: 5px 8px 0 0; color: var(--navy);
+}
+.bsf-art__body sup { font-family: var(--ui); font-size: 9px; color: var(--gold); vertical-align: super; line-height: 0; }
+.bsf-art__body em { font-style: italic; }
+.bsf-art__body a { color: var(--navy); text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
+.bsf-art__body strong { color: var(--navy); }
+
+.bsf-art__body blockquote {
+  border-left: none; border-top: 2px solid var(--navy); border-bottom: 1px solid var(--rule);
+  margin: 36px 0; padding: 18px 0; font-style: italic; font-size: clamp(17px, 2.8vw, 21px);
+  line-height: 1.42; color: var(--navy); background: none;
+}
+.bsf-art__body blockquote p { margin: 0; }
+
+.bsf-art__section { border-top: 1px solid var(--navy); padding-top: 8px; margin: 48px 0 18px; }
+.bsf-art__section h2 {
+  font-family: var(--ui); font-size: 9px; font-weight: 700; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--navy); margin: 0;
+}
+
+/* Region sub-heading (e.g. "Boa Vista" on the Primer) */
+.bsf-art__region {
+  font-family: var(--ui); font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+  text-transform: uppercase; color: var(--navy); margin: 56px 0 4px;
+}
+.bsf-art__region-gov {
+  font-family: var(--ui); font-size: 10px; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 18px;
+}
+.bsf-art__region-gov strong { color: var(--body); font-weight: 600; }
+
+/* Club sub-heading (e.g. Cape and Crests badge-by-badge sections) */
+.bsf-art__club {
+  font-family: var(--ui); font-size: 16px; font-weight: 700; letter-spacing: -0.005em;
+  color: var(--navy); margin: 40px 0 2px;
+}
+.bsf-art__club-meta {
+  font-family: var(--ui); font-size: 10px; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 14px;
+}
+
+/* Sub-labels inside a section, e.g. "Stadiums", "Derbies" */
+.bsf-art__sublabel {
+  font-family: var(--ui); font-size: 9px; font-weight: 700; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--gold); margin: 28px 0 8px;
+}
+
+.bsf-art__notes { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--rule); }
+.bsf-art__notes-label {
+  font-family: var(--ui); font-size: 9px; font-weight: 700; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 14px;
+}
+.bsf-art__notes ol { padding-left: 20px; margin: 0; }
+.bsf-art__notes li { font-family: var(--ui); font-size: 11px; line-height: 1.6; color: var(--muted); margin-bottom: 8px; }
+.bsf-art__notes li em { font-family: var(--serif); font-style: italic; font-size: 12px; }
+
+/* ═══════════════════════════════════════
+   PRIMER-SPECIFIC: dynamic champions list
+   and title-count bars (populated by
+   primer-page.js)
+═══════════════════════════════════════ */
+.bsf-primer__champs-list { list-style: none; padding: 0; margin: 0 0 1.2em; border: 1px solid var(--rule); }
+.bsf-primer__champs-list li {
+  font-size: 15px; padding: 9px 14px; border-bottom: 1px solid var(--rule);
+  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+}
+.bsf-primer__champs-list li:last-child { border-bottom: none; }
+.bsf-primer__champs-list strong {
+  font-family: var(--ui); font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--navy); margin-right: 10px;
+}
+.bsf-primer__season { font-family: var(--ui); font-size: 10px; color: var(--muted); }
+
+.bsf-primer__titles-group { margin-bottom: 22px; }
+.bsf-primer__titles-heading {
+  font-family: var(--ui); font-size: 9px; font-weight: 700; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--gold); margin-bottom: 8px;
+  border-bottom: 1px solid var(--rule); padding-bottom: 6px;
+}
+.bsf-primer__bar-row {
+  display: grid; grid-template-columns: 140px 1fr 34px; align-items: center; gap: 8px; margin-bottom: 5px;
+}
+.bsf-primer__bar-label {
+  font-family: var(--ui); font-size: 11px; color: var(--body);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bsf-primer__bar-track { background: var(--rule); height: 10px; }
+.bsf-primer__bar-fill  { background: var(--navy); height: 100%; }
+.bsf-primer__bar-count { font-family: var(--ui); font-size: 10px; color: var(--muted); text-align: right; }
+.bsf-primer__empty, .bsf-primer__error { font-family: var(--ui); font-size: 11px; color: var(--muted); font-style: normal; }
+.bsf-primer__error { color: var(--red); }
+
+@media (max-width: 640px) {
+  .bsf-art { padding-left: 16px; padding-right: 16px; }
+  .bsf-art__hero-outer { margin-left: -16px; margin-right: -16px; }
+  .bsf-art__hero-sticky { height: 55vh; }
+  .bsf-art__hero-scroll-text { margin-top: calc(55vh - 60px); }
+  .bsf-art__fig { margin-left: -16px; margin-right: -16px; }
+  .bsf-art__fig figcaption { padding-left: 16px; padding-right: 16px; }
+  .bsf-art__body { font-size: 16px; }
+  .bsf-art__body blockquote { font-size: 17px; }
+  .bsf-art__body--first p:first-child::first-letter { font-size: 44px; }
+  .bsf-primer__bar-row { grid-template-columns: 100px 1fr 30px; }
+}
