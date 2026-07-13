@@ -270,23 +270,15 @@
         likelyScore: bestH+"\u2013"+bestA, dataPoints: matches.length };
     }
 
-    /* ── MATCH CARD (mirrors club-page.js / region-page-sections.js) ── */
-    function makeCard(m, type, allForH2H) {
-      const hg = type !== "upcoming" ? m.home_goals : null;
-      const ag = type !== "upcoming" ? m.away_goals : null;
-      const g  = String(m.gp||"").trim();
-      const min = type === "live" && !isNaN(Number(g)) ? g+"\u2032" : "";
+    /* Shared row markup (logo + linked name + score, winner highlighted) —
+       used by both the results carousels and the knockout bracket cards,
+       so they always look identical. */
+    function matchRowsHTML(m, hg, ag) {
       const hWon = hg!=null && ag!=null && hg>ag;
       const aWon = hg!=null && ag!=null && ag>hg;
       const hLogoHTML = m.home_logo ? "<img src=\""+esc(m.home_logo)+"\" class=\"ko-logo\" alt=\"\">" : "";
       const aLogoHTML = m.away_logo ? "<img src=\""+esc(m.away_logo)+"\" class=\"ko-logo\" alt=\"\">" : "";
-      const liveDot = type==="live" ? "<span style=\"display:inline-block;width:6px;height:6px;border-radius:50%;background:#C2A14A;margin-right:4px;animation:bsf-pulse 1.4s infinite;vertical-align:middle;\"></span>" : "";
-
-      const el = document.createElement("div");
-      el.className = "ko-match ko-animate";
-      el.style.cssText = "flex:0 0 auto;min-width:230px;max-width:250px;scroll-snap-align:start;";
-      el.innerHTML =
-        "<div class=\"ko-date\">"+liveDot+esc(fmtDate(m.date))+" &middot; "+esc(m._comp ? m._comp.label : m.league)+(min?" &middot; <strong>"+min+"</strong>":"")+"</div>"+
+      return (
         "<div class=\"ko-team "+(hWon?"ko-winner":aWon?"ko-loser":"")+"\">"+
           "<div class=\"ko-team-left\">"+hLogoHTML+teamLink(m.home_short||m.home_full)+"</div>"+
           "<span class=\"ko-score\">"+(hg!=null?hg:"")+"</span>"+
@@ -294,7 +286,24 @@
         "<div class=\"ko-team "+(aWon?"ko-winner":hWon?"ko-loser":"")+"\">"+
           "<div class=\"ko-team-left\">"+aLogoHTML+teamLink(m.away_short||m.away_full)+"</div>"+
           "<span class=\"ko-score\">"+(ag!=null?ag:"")+"</span>"+
-        "</div>";
+        "</div>"
+      );
+    }
+
+    /* ── MATCH CARD (mirrors club-page.js / region-page-sections.js) ── */
+    function makeCard(m, type, allForH2H) {
+      const hg = type !== "upcoming" ? m.home_goals : null;
+      const ag = type !== "upcoming" ? m.away_goals : null;
+      const g  = String(m.gp||"").trim();
+      const min = type === "live" && !isNaN(Number(g)) ? g+"\u2032" : "";
+      const liveDot = type==="live" ? "<span style=\"display:inline-block;width:6px;height:6px;border-radius:50%;background:#C2A14A;margin-right:4px;animation:bsf-pulse 1.4s infinite;vertical-align:middle;\"></span>" : "";
+
+      const el = document.createElement("div");
+      el.className = "ko-match ko-animate";
+      el.style.cssText = "flex:0 0 auto;min-width:230px;max-width:250px;scroll-snap-align:start;";
+      el.innerHTML =
+        "<div class=\"ko-date\">"+liveDot+esc(fmtDate(m.date))+" &middot; "+esc(m._comp ? m._comp.label : m.league)+(min?" &middot; <strong>"+min+"</strong>":"")+"</div>"+
+        matchRowsHTML(m, hg, ag);
 
       if (type === "upcoming" && allForH2H) {
         setTimeout(() => {
@@ -389,34 +398,43 @@
       return Object.values(groups).map(legs => legs.sort((a,b) => (a._d||0)-(b._d||0)));
     }
 
+    /* Each tie renders as one or two standard match cards (identical
+       style to the results carousel, logos + winner highlight included),
+       plus an aggregate line when there are two legs. */
     function renderTie(legs) {
       const teamA = legs[0].home_short || legs[0].home_full;
       const teamB = legs[0].away_short || legs[0].away_full;
       let aggA = 0, aggB = 0, played = 0;
-      const legRows = legs.map((leg, i) => {
+
+      const legCards = legs.map((leg, i) => {
         const isAHome = norm(leg.home_short||leg.home_full) === norm(teamA);
         if (leg.home_goals != null && leg.away_goals != null) {
           played++;
           aggA += isAHome ? leg.home_goals : leg.away_goals;
           aggB += isAHome ? leg.away_goals : leg.home_goals;
         }
-        const scoreStr = (leg.home_goals!=null && leg.away_goals!=null) ? leg.home_goals+"–"+leg.away_goals : "vs";
-        return "<div class=\"ko-team\" style=\"justify-content:flex-start;gap:6px;\">"+
-          "<div class=\"ko-team-left\">"+teamLink(leg.home_short||leg.home_full)+"</div>"+
-          "<span>"+scoreStr+"</span>"+
-          "<div class=\"ko-team-left\">"+teamLink(leg.away_short||leg.away_full)+"</div>"+
-        "</div>";
+        const legLabel = legs.length > 1 ? ("Leg "+(i+1)+" &middot; ") : "";
+        return `<div class="ko-match ko-animate" style="width:100%;max-width:100%;box-sizing:border-box;margin-bottom:6px;">
+          <div class="ko-date">${legLabel}${esc(fmtDate(leg.date))}</div>
+          ${matchRowsHTML(leg, leg.home_goals, leg.away_goals)}
+        </div>`;
       }).join("");
+
       const aggLabel = legs.length > 1 && played
-        ? "<div class=\"ko-date\" style=\"margin-top:4px;\">Aggregate: <strong>"+teamLink(teamA)+" "+aggA+"–"+aggB+" "+teamLink(teamB)+"</strong></div>"
+        ? "<div class=\"ko-date\" style=\"margin:2px 0 10px;\">Aggregate: <strong>"+teamLink(teamA)+" "+aggA+"\u2013"+aggB+" "+teamLink(teamB)+"</strong></div>"
         : "";
-      return `<div class="ko-match ko-animate" style="margin-bottom:10px;width:100%;max-width:100%;box-sizing:border-box;text-align:left;margin-left:0;margin-right:0;">
-        <div class="ko-date">${esc(fmtDate(legs[0].date))}${legs.length>1 ? " · 2 legs" : ""}</div>
-        ${legRows}
+
+      return `<div class="bsf-national__tie" style="width:100%;max-width:100%;box-sizing:border-box;margin-bottom:12px;">
+        ${legCards}
         ${aggLabel}
       </div>`;
     }
 
+    /* Typical bracket layout: one column per round, Semifinals feeding
+       into the Final, left-to-right on desktop, stacked on mobile.
+       Uses the site's existing .ko-bracket/.ko-round/.ko-match-list
+       classes (so any bracket styling already in Basofu_complete.css
+       still applies) plus scoped fallback sizing/columns of our own. */
     function renderKnockout(matches) {
       const order = ["semifinal", "final"];
       const byRound = {};
@@ -433,12 +451,12 @@
       const roundsHTML = roundKeys.map(rk => {
         const ties = groupTies(byRound[rk]);
         const label = rk.charAt(0).toUpperCase()+rk.slice(1);
-        return `<div style="margin-bottom:14px;width:100%;">
-          <div style="font-size:9px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#888;margin-bottom:6px;">${esc(label)}</div>
-          ${ties.map(renderTie).join("")}
+        return `<div class="ko-round bsf-national__ko-round">
+          <div class="ko-round-title bsf-national__ko-round-title">${esc(label)}</div>
+          <div class="ko-match-list">${ties.map(renderTie).join("")}</div>
         </div>`;
       }).join("");
-      return `<div class="bsf-national__knockout">${roundsHTML}</div>`;
+      return `<div class="ko-bracket bsf-national__bracket">${roundsHTML}</div>`;
     }
 
     /* ── CHAMPIONS (4 named competitions, per gender) ─────────── */
@@ -580,8 +598,11 @@
       .bsf-national__col .bsf-club__table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; margin:0; padding:0; }
       .bsf-national__col .bsf-club__table { width:100%; }
       .bsf-national__col td, .bsf-national__col th { overflow-wrap:break-word; word-break:break-word; }
-      .bsf-national__knockout { width:100%; max-width:100%; margin:0; padding:0; }
-      .bsf-national__knockout .ko-match { overflow-wrap:break-word; word-break:break-word; }
+      .bsf-national__bracket { display:flex; gap:1.5rem; align-items:flex-start; width:100%; max-width:100%; overflow-x:auto; }
+      .bsf-national__ko-round { flex:1 1 0; min-width:210px; max-width:100%; }
+      .bsf-national__ko-round-title { font-size:9px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#888; margin-bottom:8px; }
+      .bsf-national__tie .ko-match { overflow-wrap:break-word; word-break:break-word; }
+      @media (max-width:640px) { .bsf-national__bracket { flex-direction:column; } .bsf-national__ko-round { min-width:0; width:100%; } }
     </style>`;
 
     /* ── RENDER (re-invoked in place whenever the season changes;
