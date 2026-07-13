@@ -5,29 +5,38 @@
 
    Purpose: on "A Primer on the Leagues of Cabo Verde", replace
    hardcoded "20XX/YY Champions" lists and "Titles by Competition"
-   images with data pulled live from the Champions + Clubs sheets,
-   so the article never needs manual updates when a season ends.
+   images with data pulled live from the Champions sheet, so the
+   article never needs manual updates when a season ends.
 
    ── HOW IT WORKS ────────────────────────────────────────────
-   The Champions sheet has NO region/island column — just
-   Year | Winner | Runner Up | Competition | Location | Notes.
-   Competition names repeat across islands ("Campeonato Regional"
-   means something different on every island), so we can't group
-   by Competition name alone.
+   The Champions sheet now has a "Region" column mapping every
+   row to the exact island/zone that competition belongs to
+   (Year | Winner | Runner Up | Competition | Location | Notes |
+   Region). We filter purely on an EXACT match against that
+   column — no more fuzzy winner-name matching against the Clubs
+   sheet, which was the source of a real bug: ambiguous club
+   names (e.g. multiple "Académica" clubs across islands) could
+   slip through and attribute a title to the wrong region.
 
-   Instead: for each region block on the page, we fetch that
-   island's clubs from the Clubs sheet (BASOFU.getClubsMeta),
-   build a set of that island's club names, and keep only
-   Champions rows whose Winner matches one of those clubs. Since
-   a club can only ever win ITS OWN island's regional competitions,
-   this disambiguates the generic competition names without
-   needing a new sheet column.
+   Two regions split into North/South and also carry their own
+   island-wide label:
+     - "Santiago"           → island-wide competitions only
+     - "Santiago Norte"     → North-specific competitions only
+     - "Santiago Sul"       → South-specific competitions only
+     - "Santo Antão"        → island-wide competitions only
+     - "Santo Antão Norte"  → North-specific competitions only
+     - "Santo Antão Sul"    → South-specific competitions only
+   These are treated as three completely distinct Region values —
+   there is no fallback or inheritance between them. A row tagged
+   "Santo Antão" will NOT appear under "Santo Antão Norte" or
+   "Santo Antão Sul", and vice versa. Whoever fills in the Region
+   column controls this precisely.
 
-   National-level rows (Campeonato Nacional, Taça Nacional,
-   Supertaça de Cabo Verde, Taça Inter-Ilhas, etc.) are pulled out
-   separately using BASOFU.isNationalCompetition(), so they always
-   land in the National section rather than being attributed to
-   whichever island the winning club happens to come from.
+   For national competitions, this script matches Region values of
+   "National" or "Nacional" (case-insensitive). If neither appears
+   for a given row, it falls back to BASOFU.isNationalCompetition()
+   on the Competition name as a safety net for any legacy rows that
+   haven't been given a Region value yet.
 
    ── HTML CONTRACT ───────────────────────────────────────────
    Each region section on the page needs mount points for men's
@@ -41,30 +50,25 @@
 
    Omitting data-bsf-gender (or setting it to "men") renders men's
    competitions. The value of data-bsf-champs / data-bsf-titles MUST
-   exactly match the "Island" column in the Clubs sheet (same rule
-   as window.BSF_ISLAND on club pages). For the national section use
-   the special value "National" on both attributes — this skips the
-   club-set filter and instead filters straight to
-   isNationalCompetition() rows.
+   exactly match a value used in the Region column of the Champions
+   sheet (accents/case are normalised for comparison, but the text
+   should otherwise match, e.g. "Santo Antão Norte").
 
    ── "LATEST" IS ALWAYS RELATIVE, NEVER A HARDCODED SEASON ───
    "Latest champion" = whatever year is most recent IN THE SHEET
    for that specific competition, computed fresh on every page
    load. No season string is ever hardcoded here — if a region's
-   2024/25 competition wasn't held, this correctly falls back to
-   its last completed season (e.g. Brava/Maio showing 2023/24)
-   without anyone needing to touch this file or the article HTML.
-   As new seasons get added to the sheet, the page updates itself.
+   most recent competition wasn't held, this correctly falls back
+   to its last completed season, without anyone needing to touch
+   this file or the article HTML. As new seasons get added to the
+   sheet, the page updates itself.
 
    ── WOMEN'S COMPETITIONS ────────────────────────────────────
    Distinguished purely by the Competition name carrying a
    "Feminino" suffix (e.g. "Campeonato Regional Feminino" vs
    "Campeonato Regional"). Add data-bsf-gender="women" to a mount
    point to render the women's side of that region/competition
-   set; omit it (or use "men") for the men's side. Region-level
-   club matching (winner → island) works the same for both, since
-   women's club names ("Seven Stars Futebol Feminino" etc.) are
-   matched the same fuzzy way as men's clubs.
+   set; omit it (or use "men") for the men's side.
    ============================================================ */
 
 (function () {
@@ -88,9 +92,19 @@
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  /* Same fuzzy club-name normaliser used on club pages, so
-     "GD Palmeira" and "Palmeira" and "Grupo Desportivo da Palmeira"
-     all resolve to the same club when matching Winner text. */
+  /* Normalise a region name for comparison only (never for display):
+     lower-case, trim, and fold accents so "Santo Antão" and
+     "santo antao" compare equal regardless of how either side
+     typed it. */
+  function normRegion(s) {
+    return (s || "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
+      .trim().toLowerCase();
+  }
+
+  /* Fuzzy club-name normaliser — still used for the titles tally,
+     where we group a competition's wins by winner, not for region
+     matching (region matching is now exact via the Region column). */
   function normClub(s) {
     return (s || "").trim().toLowerCase()
       .replace(/^(gd|cd|sc|cf|ad|sp|ge|asc|adf|gdsc|as)\s+/i, "")
@@ -98,6 +112,7 @@
   }
 
   const SKIP_WINNERS = new Set(["not known", "not held", "unknown", "tbd", "n/a", ""]);
+  const NATIONAL_REGION_VALUES = new Set(["national", "nacional"]);
 
   /* Women's competitions carry a "Feminino" suffix in the Competition
      name column, e.g. "Campeonato Regional Feminino". Everything
@@ -120,28 +135,13 @@
       return;
     }
 
-    /* Collect the distinct region names referenced on the page.
-       (Gender doesn't affect which regions/clubs we need to fetch —
-       men's and women's rows for a region draw from the same club
-       list — so this stays keyed on region only.) */
-    const regions = new Set();
-    champMounts.forEach(el => regions.add(el.dataset.bsfChamps));
-    titleMounts.forEach(el => regions.add(el.dataset.bsfTitles));
-
-    /* Fetch the full Champions sheet once (small, heavily cached),
-       plus each region's clubs in parallel (server-filtered by island). */
+    /* Fetch the full Champions sheet once — that's all this script
+       needs now that Region is a real column. */
     let champRows = [];
-    const clubsByRegion = {};
     try {
-      const nonNational = [...regions].filter(r => r !== "National");
-      const [champResult, ...clubResults] = await Promise.all([
-        BASOFU.getHonorsRaw(),
-        ...nonNational.map(r => BASOFU.getClubsMeta(r))
-      ]);
-      champRows = champResult || [];
-      nonNational.forEach((r, i) => { clubsByRegion[r] = clubResults[i] || []; });
+      champRows = await BASOFU.getHonorsRaw() || [];
     } catch (e) {
-      console.error("[Basofu primer] Failed to load sheet data", e);
+      console.error("[Basofu primer] Failed to load Champions sheet", e);
       champMounts.forEach(el => el.innerHTML = `<p class="bsf-primer__error">Could not load champions data.</p>`);
       titleMounts.forEach(el => el.innerHTML = `<p class="bsf-primer__error">Could not load titles data.</p>`);
       return;
@@ -152,42 +152,29 @@
       const winner      = (r.winner || r["Winner"] || "").trim();
       const runnerUp    = (r.runnerUp || r["Runner Up"] || "").trim();
       const competition = (r.competition || r["Competition"] || "").trim();
+      const region      = (r.region || r["Region"] || "").trim();
       const rawYear     = (r.year || r["Year"] || "").toString().trim();
-      const season      = BASOFU.seasonStart ? rawYear : rawYear; // kept raw; seasonStart used for sorting
-      return { winner, runnerUp, competition, rawYear, seasonStart: BASOFU.seasonStart(rawYear) };
+      return {
+        winner, runnerUp, competition, region, rawYear,
+        seasonStart: BASOFU.seasonStart(rawYear)
+      };
     }).filter(r => r.competition && r.rawYear && !SKIP_WINNERS.has(r.winner.toLowerCase()));
 
-    /* Build a lookup: for a given region, the set of normalised club
-       identifiers (full name + short name) that belong to it. */
-    function clubSetFor(region) {
-      const set = new Set();
-      (clubsByRegion[region] || []).forEach(c => {
-        const full  = c.team || c["Team"] || "";
-        const short = c.shortName || c["Short Name"] || c.short || "";
-        if (full)  set.add(normClub(full));
-        if (short) set.add(normClub(short));
-      });
-      return set;
-    }
-
-    /* Rows belonging to a given region's OWN competitions, for a given
-       gender: winner must be a club from that island, the competition
-       must not be a national-level one (national wins are shown only
-       in the National section, even if won by this island's club),
-       and the competition's Feminino-suffix status must match the
-       requested gender. */
+    /* Rows belonging to an EXACT region match, for a given gender.
+       "National" is special: matches Region values of National/
+       Nacional, with a fallback to isNationalCompetition() on the
+       Competition name for any row that hasn't been tagged yet. */
     function rowsFor(region, gender) {
       const wantWomens = gender === "women";
-      const base = region === "National"
-        ? normRows.filter(r => BASOFU.isNationalCompetition(r.competition))
-        : (() => {
-            const clubSet = clubSetFor(region);
-            if (!clubSet.size) return [];
-            return normRows.filter(r =>
-              !BASOFU.isNationalCompetition(r.competition) &&
-              clubSet.has(normClub(r.winner))
-            );
-          })();
+      const wantRegion = normRegion(region);
+
+      const base = wantRegion === "national"
+        ? normRows.filter(r =>
+            NATIONAL_REGION_VALUES.has(normRegion(r.region)) ||
+            (!r.region && BASOFU.isNationalCompetition(r.competition))
+          )
+        : normRows.filter(r => normRegion(r.region) === wantRegion);
+
       return base.filter(r => isWomensCompetition(r.competition) === wantWomens);
     }
 
@@ -201,9 +188,8 @@
       return groups;
     }
 
-    /* Sort competitions: national first (won't apply within a region
-       group since national's excluded), then supercup, cup, abertura,
-       league — matches the ordering used on club pages. */
+    /* Sort competitions: supercup, cup, abertura, group, league —
+       matches the ordering used on club pages. */
     const compOrder = { national: 0, supercup: 1, cup: 2, abertura: 3, group: 4, league: 5 };
     function sortCompetitions(names) {
       return names.sort((a, b) => {
