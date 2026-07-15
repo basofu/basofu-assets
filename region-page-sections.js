@@ -11,6 +11,33 @@ function esc(s) {
 }
 function norm(s) { return (s||"").trim().toLowerCase(); }
 function toDate(s) { const d = new Date(s); return isNaN(d) ? null : d; }
+
+/* ── TOOLTIP POSITIONING ──────────────────────────────────────
+   Fix: on narrow screens the old cursor-follow tooltip could open
+   bottom-right and run off the viewport. Below ~640px we instead
+   dock the tooltip over the match card itself (same width, same
+   top position) so it always stays fully on screen. On wider
+   screens we keep cursor-follow but clamp it to the viewport. ── */
+function placeTooltip(tip, el, e) {
+  const isNarrow = window.innerWidth <= 640;
+  if (isNarrow) {
+    const r = el.getBoundingClientRect();
+    tip.style.maxWidth = r.width + "px";
+    tip.style.width = r.width + "px";
+    tip.style.left = Math.max(6, r.left) + "px";
+    tip.style.top  = Math.max(6, r.top) + "px";
+    return;
+  }
+  tip.style.width = "";
+  tip.style.maxWidth = "220px";
+  const tw = tip.offsetWidth || 220, th = tip.offsetHeight || 100;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + tw > vw - 8) x = Math.max(8, e.clientX - tw - 14);
+  if (y + th > vh - 8) y = Math.max(8, e.clientY - th - 14);
+  tip.style.left = x + "px";
+  tip.style.top  = y + "px";
+}
 function fmtDate(s) {
   if (!s) return "";
   const iso = String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -345,7 +372,7 @@ function makeCard(m, type) {
 
   const el = document.createElement("div");
   el.className = "ko-match ko-animate";
-  el.style.cssText = "flex:0 0 auto;min-width:240px;max-width:260px;scroll-snap-align:start;";
+  el.style.cssText = "flex:0 0 auto;box-sizing:border-box;width:min(260px,86vw);max-width:260px;scroll-snap-align:start;";
   const liveDot = type==="live" ? "<span style=\"display:inline-block;width:6px;height:6px;border-radius:50%;background:#C2A14A;margin-right:4px;animation:bsf-pulse 1.4s infinite;vertical-align:middle;\"></span>" : "";
   const hLogoHTML = hLogo ? "<img src=\"" + esc(hLogo) + "\" class=\"ko-logo\" alt=\"\">" : "";
   const aLogoHTML = aLogo ? "<img src=\"" + esc(aLogo) + "\" class=\"ko-logo\" alt=\"\">" : "";
@@ -394,7 +421,7 @@ function makeCard(m, type) {
             borderRadius:"8px",padding:"10px 12px",
             boxShadow:"0 2px 10px rgba(0,0,0,0.12)",
             fontFamily:"'Inter',system-ui,sans-serif",fontSize:"12px",
-            maxWidth:"220px"
+            maxWidth:"220px", boxSizing:"border-box"
           });
           const w=180,h=80,pad=8,baseY=40;
           const maxA = Math.max(1,...h2h.map(p=>Math.abs(p.diff)));
@@ -415,11 +442,10 @@ function makeCard(m, type) {
           return t;
         })();
         tip.style.display = "block";
-        tip.style.left = (e.clientX+14)+"px";
-        tip.style.top  = (e.clientY+14)+"px";
+        placeTooltip(tip, el, e);
       });
       el.addEventListener("mousemove", e => {
-        if(tip) { tip.style.left=(e.clientX+14)+"px"; tip.style.top=(e.clientY+14)+"px"; }
+        if(tip) placeTooltip(tip, el, e);
       });
       el.addEventListener("mouseleave", () => { if(tip) tip.style.display="none"; });
     }
@@ -529,21 +555,58 @@ const compOrder = s => {
   return 4;
 };
 const sortedComps = Object.keys(champsByComp).sort((a,b) => compOrder(a) - compOrder(b));
+
+/* Champions section now shows ONLY the most recent season's winner per
+   competition — no more inline "prev winners" list under each card.
+   Full history moved to its own "Historic Winners" section below,
+   styled the same way as the Primer article's all-time title bars. */
 const champHTML = sortedComps.length ? `
   <div class="bsf-region__section"><div class="bsf-region__section-label">Champions</div></div>
   <div class="bsf-region__champs">
     ${sortedComps.map(comp => {
       const entries = champsByComp[comp].sort((a,b) => String(b.year).localeCompare(String(a.year)));
       const latest  = entries[0];
-      const prev    = entries.slice(1,4);
       return `<div class="bsf-region__champ-card">
         <div class="bsf-region__champ-comp">${esc(comp)}</div>
         <div class="bsf-region__champ-winner">${esc(latest.winner)}</div>
         <div class="bsf-region__champ-year">${esc(latest.year)}</div>
-        ${prev.length ? "<div class=\"bsf-region__champ-prev\">" + prev.map(e=>"<span>"+esc(e.winner)+" <em>"+esc(e.year)+"</em></span>").join("") + "</div>" : ""}
       </div>`;
     }).join("")}
   </div>` : "";
+
+/* ── HISTORIC WINNERS — all-time title tally per competition ──
+   Same bar-chart treatment used on the Primer article
+   (bsf-primer__bar-row / bar-track / bar-fill / bar-count classes,
+   already defined in bsf-art.css since it's loaded sitewide). ── */
+const historicHTML = sortedComps.length ? `
+  <div class="bsf-region__section"><div class="bsf-region__section-label">Historic Winners</div></div>
+  ${sortedComps.map(comp => {
+    const entries = champsByComp[comp];
+    const yearsByWinner = {};
+    entries.forEach(e => {
+      const key = norm(e.winner);
+      if (!yearsByWinner[key]) yearsByWinner[key] = { display: e.winner, years: new Set() };
+      yearsByWinner[key].years.add(e.year);
+      if (e.winner.length > yearsByWinner[key].display.length) yearsByWinner[key].display = e.winner;
+    });
+    const tally = Object.values(yearsByWinner)
+      .map(v => ({ name: v.display, count: v.years.size }))
+      .sort((a,b) => b.count - a.count || a.name.localeCompare(b.name));
+    const maxCount = tally[0] ? tally[0].count : 1;
+    const barRows = tally.map(t => `
+      <div class="bsf-primer__bar-row">
+        <span class="bsf-primer__bar-label">${esc(t.name)}</span>
+        <div class="bsf-primer__bar-track">
+          <div class="bsf-primer__bar-fill" style="width:${Math.max(6, Math.round(100 * t.count / maxCount))}%"></div>
+        </div>
+        <span class="bsf-primer__bar-count">${t.count}&times;</span>
+      </div>`).join("");
+    return `
+      <div style="margin-bottom:1.5rem;">
+        <div style="font-family:var(--ui,'Inter',sans-serif);font-size:11px;font-weight:700;color:#2F3E46;margin-bottom:8px;">${esc(comp)}</div>
+        ${barRows}
+      </div>`;
+  }).join("")}` : "";
 
 /* ── NEWS ────────────────────────────────────────────────── */
 let newsHTML = "";
@@ -608,6 +671,7 @@ root.innerHTML = [
   BIO    ? `<div class="bsf-region__bio">${BIO}</div>` : "",
   resultsHTML,
   champHTML,
+  historicHTML,
   scorigamiHTML,
   newsHTML,
 ].filter(Boolean).join("\n");
