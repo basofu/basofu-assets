@@ -10,57 +10,57 @@ window.__basofuStandingsRunning = true;
   // >>> Change this per region page, OR set window.BSF_REGION before loading this script <<<
   const REGION = window.BSF_REGION || "São Vicente";
 
-  // Promotion / Relegation config
-  // Only applied to Division 1 tables, not groups.
+  /* ============================================================
+     PROMOTION / RELEGATION CONFIG
+     Only applied to Division 1 / Division 2 league tables — never
+     to groups within a group-knockout competition.
+
+     Each division entry has:
+       promotion: { auto: N, playoff: M }
+       relegation:{ auto: N, playoff: M }
+
+       auto      = teams that go up/down automatically (SOLID line +
+                   solid colour border in the table)
+       playoff   = teams just below/above the automatic zone that
+                   must win a playoff to go up/down (DASHED line +
+                   dashed colour border)
+
+     "promotion" only matters for a division that ISN'T the top flight
+     (its top teams move up); "relegation" only matters for a division
+     that has a lower tier below it (its bottom teams move down). Set
+     the irrelevant side to { auto: 0, playoff: 0 } — that's the
+     default and nothing is drawn for it.
+
+     EXAMPLE — a region where Division 2 sends up one team automatically
+     and 2nd/3rd place fight in a playoff for a second promotion spot,
+     while Division 1 only relegates the very bottom side automatically:
+       div1: { promotion: { auto: 0, playoff: 0 }, relegation: { auto: 1, playoff: 0 } },
+       div2: { promotion: { auto: 1, playoff: 1 }, relegation: { auto: 0, playoff: 0 } }
+
+     Every region below currently defaults to the simplest case — one
+     team up, one team down, no playoffs — per Basofu's placeholder
+     assumption. Edit the numbers per region as the real rules are
+     confirmed; nothing else in the code needs to change.
+  ============================================================ */
+  const PROREL_DEFAULT = {
+    div1: { promotion: { auto: 0, playoff: 0 }, relegation: { auto: 1, playoff: 0 } },
+    div2: { promotion: { auto: 1, playoff: 0 }, relegation: { auto: 0, playoff: 0 } }
+  };
+
+  function clonePR() { return JSON.parse(JSON.stringify(PROREL_DEFAULT)); }
+
   const PROREL = {
-    "Fogo": {
-      div1: {
-        solidFromBottom: 3    // separation 2 from bottom (relegation)
-      },
-      div2: {
-        solidAfter: 2,        // separation after 2nd place (promotion)
-      }
-    },
-    "Sal": {
-      div1: {
-        solidFromBottom: 2
-      },
-      div2: {
-        solidAfter: 1,
-      }
-    },
-    "Santiago Norte": {
-      div1: {
-        solidFromBottom: 3
-      },
-      div2: {
-        solidAfter: 2,
-      }
-    },
-    "Santiago Sul": {
-      div1: {
-        solidFromBottom: 3
-      },
-      div2: {
-        solidAfter: 2,
-      }
-    },
-    "São Vicente": {
-      div1: {
-        solidFromBottom: 2,
-        dashedFromBottom: 3
-      },
-      div2: {
-        solidAfter: 1,
-        dashedAfter: 2,
-      }
-    },
-    "Boa Vista": {},
-    "Brava": {},
-    "Maio": {},
-    "Santo Antão Norte": {},
-    "Santo Antão Sul": {},
-    "São Nicolau": {}
+    "Boa Vista":         clonePR(),
+    "Brava":             clonePR(),
+    "Fogo":              clonePR(),
+    "Maio":              clonePR(),
+    "Sal":               clonePR(),
+    "Santiago Norte":    clonePR(),
+    "Santiago Sul":      clonePR(),
+    "Santo Antão Norte": clonePR(),
+    "Santo Antão Sul":   clonePR(),
+    "São Nicolau":       clonePR(),
+    "São Vicente":       clonePR()
   };
 
   /* ============================================================
@@ -1329,6 +1329,65 @@ function renderKnockoutBracket(rounds) {
     return regionRules[key] || null;
   }
 
+  /* Turn { promotion:{auto,playoff}, relegation:{auto,playoff} } + a row
+     count into a per-row zone label, plus the boundary indices where a
+     separator line should be drawn. Zone label drives the coloured
+     left-border; boundary indices drive the solid/dashed rule between
+     groups (reusing the existing .pro-solid-top / .pro-dash-top /
+     .rel-solid-bot / .rel-dash-bot classes). */
+  function computeProRelZones(rules, totalRows) {
+    const zones = new Array(totalRows).fill(null);
+    const boundaryClasses = new Array(totalRows).fill("");
+    if (!rules || !totalRows) return { zones, boundaryClasses };
+
+    const promo  = rules.promotion  || { auto:0, playoff:0 };
+    const releg  = rules.relegation || { auto:0, playoff:0 };
+    const pAuto  = Math.max(0, promo.auto|0),  pPlay = Math.max(0, promo.playoff|0);
+    const rAuto  = Math.max(0, releg.auto|0),  rPlay = Math.max(0, releg.playoff|0);
+
+    for (let i = 0; i < Math.min(pAuto, totalRows); i++) zones[i] = "promo-auto";
+    for (let i = pAuto; i < Math.min(pAuto + pPlay, totalRows); i++) zones[i] = "promo-playoff";
+
+    const relPlayoffStart = totalRows - rAuto - rPlay;
+    const relAutoStart    = totalRows - rAuto;
+    for (let i = Math.max(0, relPlayoffStart); i < relAutoStart; i++) {
+      if (!zones[i]) zones[i] = "releg-playoff";
+    }
+    for (let i = Math.max(0, relAutoStart); i < totalRows; i++) {
+      zones[i] = "releg-auto";
+    }
+
+    if (pAuto > 0 && pAuto < totalRows)               boundaryClasses[pAuto] += " pro-solid-top";
+    if (pPlay > 0 && pAuto + pPlay < totalRows)        boundaryClasses[pAuto + pPlay] += " pro-dash-top";
+    if (rAuto > 0 && relAutoStart - 1 >= 0)            boundaryClasses[relAutoStart - 1] += " rel-solid-bot";
+    if (rPlay > 0 && relPlayoffStart - 1 >= 0)         boundaryClasses[relPlayoffStart - 1] += " rel-dash-bot";
+
+    return { zones, boundaryClasses };
+  }
+
+  const ZONE_ROW_CLASS = {
+    "promo-auto":     "zone-promo-auto",
+    "promo-playoff":  "zone-promo-playoff",
+    "releg-auto":     "zone-releg-auto",
+    "releg-playoff":  "zone-releg-playoff"
+  };
+
+  /* Legend shown under a division table — only lists the categories
+     that are actually in play for that division's rules, so a region
+     with no playoff spots doesn't show a "playoff" key nobody needs. */
+  function proRelLegendHTML(rules) {
+    if (!rules) return "";
+    const promo = rules.promotion  || { auto:0, playoff:0 };
+    const releg = rules.relegation || { auto:0, playoff:0 };
+    const items = [];
+    if (promo.auto)     items.push(`<span class="bsf-legend-item"><span class="bsf-legend-dot bsf-legend-dot--gold"></span>Automatic promotion</span>`);
+    if (promo.playoff)  items.push(`<span class="bsf-legend-item"><span class="bsf-legend-dot bsf-legend-dot--gold bsf-legend-dot--dashed"></span>Playoff promotion</span>`);
+    if (releg.auto)     items.push(`<span class="bsf-legend-item"><span class="bsf-legend-dot bsf-legend-dot--red"></span>Automatic relegation</span>`);
+    if (releg.playoff)  items.push(`<span class="bsf-legend-item"><span class="bsf-legend-dot bsf-legend-dot--red bsf-legend-dot--dashed"></span>Playoff relegation</span>`);
+    if (!items.length) return "";
+    return `<div class="bsf-table-legend">${items.join("")}</div>`;
+  }
+
   /* ============================================================
      STANDINGS TABLE RENDERER
   ============================================================ */
@@ -1343,6 +1402,7 @@ function renderKnockoutBracket(rounds) {
     const totalRows   = rows.length;
 
     const rules = getProRelRules(FILTERS.region, divisionKey, bucketType);
+    const { zones, boundaryClasses } = computeProRelZones(rules, totalRows);
 
     
     const liveMatches = (opts.liveMatches || []);
@@ -1379,20 +1439,9 @@ function renderKnockoutBracket(rounds) {
 
       let trClasses = rowClass;
 
-      if (rules) {
-        if (rules.solidAfter && idx === rules.solidAfter) {
-          trClasses += " pro-solid-top";
-        }
-        if (rules.dashedAfter && idx === rules.dashedAfter) {
-          trClasses += " pro-dash-top";
-        }
-        if (rules.solidFromBottom && idx === (totalRows - rules.solidFromBottom)) {
-          trClasses += " rel-solid-bot";
-        }
-        if (rules.dashedFromBottom && idx === (totalRows - rules.dashedFromBottom)) {
-          trClasses += " rel-dash-bot";
-        }
-      }
+      const zoneClass = ZONE_ROW_CLASS[zones[idx]];
+      if (zoneClass) trClasses += " " + zoneClass;
+      if (boundaryClasses[idx]) trClasses += boundaryClasses[idx];
 
       const fullName  = r.fullName || r.key;
       const shortName = r.shortName || r.key;
@@ -1468,6 +1517,7 @@ function renderKnockoutBracket(rounds) {
             ${liveRowHtml}${bodyRowsHtml}
           </tbody>
         </table>
+        ${proRelLegendHTML(rules)}
       </div>
     `;
   }
