@@ -60,17 +60,89 @@
     return d.toLocaleDateString("pt-CV", { day:"numeric", month:"short", year:"numeric" });
   }
 
+  /* ── TOOLTIP POSITIONING ──────────────────────────────────────
+     Fix: on narrow screens the old cursor-follow tooltip could open
+     bottom-right and run off the viewport. Below ~640px we instead
+     dock the tooltip over the match card itself (same width, same
+     top position) so it always stays fully on screen. On wider
+     screens we keep cursor-follow but clamp it to the viewport. ── */
+  function placeTooltip(tip, el, e) {
+    var isNarrow = window.innerWidth <= 640;
+    if (isNarrow) {
+      var r = el.getBoundingClientRect();
+      tip.style.maxWidth = r.width + "px";
+      tip.style.width = r.width + "px";
+      tip.style.left = Math.max(6, r.left) + "px";
+      tip.style.top  = Math.max(6, r.top) + "px";
+      return;
+    }
+    tip.style.width = "";
+    tip.style.maxWidth = "220px";
+    var tw = tip.offsetWidth || 220, th = tip.offsetHeight || 100;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var x = e.clientX + 14, y = e.clientY + 14;
+    if (x + tw > vw - 8) x = Math.max(8, e.clientX - tw - 14);
+    if (y + th > vh - 8) y = Math.max(8, e.clientY - th - 14);
+    tip.style.left = x + "px";
+    tip.style.top  = y + "px";
+  }
+
   /* parseRosterCell removed — roster now loaded live from Players sheet */
 
-  /* ── KIT SVG BUILDER ─────────────────────────────────────── */
-  function kitSVG (primary, secondary, label) {
-    /* Simple polo-shirt shape. primary = body, secondary = sleeves/collar */
+  /* ── KIT SVG BUILDER ─────────────────────────────────────────
+     JERSEY PATTERNS — driven by the "Kit Home Pattern" / "Kit Away
+     Pattern" columns in the Clubs sheet (see BasofuAPI.gs getClubs()).
+     Accepted values: "normal" | "hoops" | "stripes" | "sash"
+     (case-insensitive; blank/unrecognised falls back to "normal").
+     primary = body colour, secondary = sleeves/collar (normal) or
+     the contrasting stripe/hoop/sash colour (other patterns).
+  ─────────────────────────────────────────────────────────── */
+  const SHIRT_BODY_PATH = "M20,20 L8,35 L18,40 L18,80 L62,80 L62,40 L72,35 L60,20 Q52,14 40,14 Q28,14 20,20 Z";
+  const SHIRT_CLIP_ID_SEQ = (function(){ let n = 0; return () => "bsfShirtClip" + (n++); })();
+
+  function kitSVG (primary, secondary, label, pattern) {
     const p = primary   || "#cccccc";
     const s = secondary || "#999999";
+    const pat = (pattern || "normal").toLowerCase().trim();
+    const clipId = SHIRT_CLIP_ID_SEQ();
+
+    let bodyFillLayer = `<path d="${SHIRT_BODY_PATH}" fill="${esc(p)}"/>`;
+
+    if (pat === "hoops") {
+      /* Horizontal stripes across the body, clipped to the shirt shape */
+      const rows = [];
+      for (let y = 14; y < 80; y += 11) {
+        rows.push(`<rect x="0" y="${y}" width="80" height="5.5" fill="${esc(s)}"/>`);
+      }
+      bodyFillLayer = `
+        <clipPath id="${clipId}"><path d="${SHIRT_BODY_PATH}"/></clipPath>
+        <path d="${SHIRT_BODY_PATH}" fill="${esc(p)}"/>
+        <g clip-path="url(#${clipId})">${rows.join("")}</g>`;
+    } else if (pat === "stripes") {
+      /* Vertical stripes across the body, clipped to the shirt shape */
+      const cols = [];
+      for (let x = 8; x < 72; x += 11) {
+        cols.push(`<rect x="${x}" y="10" width="5.5" height="76" fill="${esc(s)}"/>`);
+      }
+      bodyFillLayer = `
+        <clipPath id="${clipId}"><path d="${SHIRT_BODY_PATH}"/></clipPath>
+        <path d="${SHIRT_BODY_PATH}" fill="${esc(p)}"/>
+        <g clip-path="url(#${clipId})">${cols.join("")}</g>`;
+    } else if (pat === "sash") {
+      /* Single diagonal band, top-right to bottom-left */
+      bodyFillLayer = `
+        <clipPath id="${clipId}"><path d="${SHIRT_BODY_PATH}"/></clipPath>
+        <path d="${SHIRT_BODY_PATH}" fill="${esc(p)}"/>
+        <g clip-path="url(#${clipId})">
+          <polygon points="80,14 80,34 26,90 6,90" fill="${esc(s)}"/>
+        </g>`;
+    }
+    /* "normal" (default) just uses bodyFillLayer as initialised above */
+
     return `
       <svg class="bsf-club__shirt" width="80" height="90" viewBox="0 0 80 90" xmlns="http://www.w3.org/2000/svg">
-        <!-- Shirt body -->
-        <path d="M20,20 L8,35 L18,40 L18,80 L62,80 L62,40 L72,35 L60,20 Q52,14 40,14 Q28,14 20,20 Z" fill="${esc(p)}" stroke="#00000022" stroke-width="1"/>
+        ${bodyFillLayer}
+        <path d="${SHIRT_BODY_PATH}" fill="none" stroke="#00000022" stroke-width="1"/>
         <!-- Sleeves -->
         <path d="M20,20 L8,35 L18,40 L24,28 Z" fill="${esc(s)}" stroke="#00000022" stroke-width="1"/>
         <path d="M60,20 L72,35 L62,40 L56,28 Z" fill="${esc(s)}" stroke="#00000022" stroke-width="1"/>
@@ -162,6 +234,8 @@
     const bluesky   = meta.bluesky  || "";
     const rivalsRaw     = meta.rivals        || meta["Rivals"]         || "";
     const clubNicknames = meta.clubNicknames  || meta["Club Nicknames"] || "";
+    const kitHomePattern = meta.kitHomePattern || "normal";
+    const kitAwayPattern = meta.kitAwayPattern || "normal";
     const kitHome1  = meta.kitHome1 || "#2F3E46";
     const kitHome2  = meta.kitHome2 || "#C2A14A";
     const kitAway1  = meta.kitAway1 || "#EDE6D8";
@@ -704,7 +778,7 @@ function dixonColes(allMatches, homeTeam, awayTeam, options) {
 
       const el = document.createElement("div");
       el.className = "ko-match ko-animate";
-      el.style.cssText = "flex:0 0 auto;min-width:240px;max-width:260px;scroll-snap-align:start;";
+      el.style.cssText = "flex:0 0 auto;box-sizing:border-box;width:min(260px,86vw);max-width:260px;scroll-snap-align:start;";
       el.innerHTML =
         "<div class=\"ko-date\">" + liveDot + esc(fmtDate(m.date)) + " &middot; " + esc(m.league) + (min ? " &middot; <strong>" + min + "</strong>" : "") + "</div>" +
         "<div class=\"ko-team " + (hWon ? "ko-winner" : aWon ? "ko-loser" : "") + "\">" +
@@ -742,7 +816,8 @@ function dixonColes(allMatches, homeTeam, awayTeam, options) {
                 background:"rgba(255,255,255,0.98)",border:"1px solid #ccc",
                 borderRadius:"8px",padding:"10px 12px",
                 boxShadow:"0 2px 10px rgba(0,0,0,0.12)",
-                fontFamily:"Inter,system-ui,sans-serif",fontSize:"12px",maxWidth:"220px"
+                fontFamily:"Inter,system-ui,sans-serif",fontSize:"12px",maxWidth:"220px",
+                boxSizing:"border-box"
               });
               var w=180,h=80,pad=8,baseY=40;
               var maxA = Math.max(1,Math.max.apply(null,h2h.map(function(p){return Math.abs(p.diff);})));
@@ -761,11 +836,10 @@ function dixonColes(allMatches, homeTeam, awayTeam, options) {
               document.body.appendChild(tip);
             }
             tip.style.display = "block";
-            tip.style.left = (e.clientX+14)+"px";
-            tip.style.top  = (e.clientY+14)+"px";
+            placeTooltip(tip, el, e);
           });
           el.addEventListener("mousemove", function(e) {
-            if(tip){tip.style.left=(e.clientX+14)+"px";tip.style.top=(e.clientY+14)+"px";}
+            if(tip) placeTooltip(tip, el, e);
           });
           el.addEventListener("mouseleave", function() { if(tip) tip.style.display="none"; });
         }
@@ -964,6 +1038,36 @@ function dixonColes(allMatches, homeTeam, awayTeam, options) {
       ST:"Striker", CF:"Centre-forward", FW:"Forward", MF:"Midfielder", DF:"Defender"
     };
 
+    /* Which roster section a position code belongs to. Anything not
+       matched falls into "Midfielders" as a safe middle ground. */
+    const POS_SECTION = {
+      GK:"Keepers",
+      CB:"Defenders", LB:"Defenders", RB:"Defenders", DF:"Defenders",
+      CM:"Midfielders", DM:"Midfielders", AM:"Midfielders", MF:"Midfielders",
+      LM:"Midfielders", RM:"Midfielders",
+      LW:"Forwards", RW:"Forwards", ST:"Forwards", CF:"Forwards", FW:"Forwards"
+    };
+    const SECTION_ORDER = ["Coach", "Keepers", "Defenders", "Midfielders", "Forwards"];
+
+    /* Minimal country → ISO flag-emoji lookup for the "Nationality"
+       column. Add more entries here as needed — unmatched names just
+       show no flag, nothing breaks. */
+    const COUNTRY_ISO = {
+      "cape verde":"CV", "cabo verde":"CV", "portugal":"PT", "brazil":"BR", "brasil":"BR",
+      "angola":"AO", "guinea-bissau":"GW", "guiné-bissau":"GW", "senegal":"SN",
+      "france":"FR", "netherlands":"NL", "holland":"NL", "spain":"ES", "morocco":"MA",
+      "mozambique":"MZ", "usa":"US", "united states":"US", "italy":"IT", "belgium":"BE",
+      "germany":"DE", "england":"GB", "united kingdom":"GB", "sao tome":"ST",
+      "são tomé e príncipe":"ST", "gambia":"GM", "mali":"ML", "ivory coast":"CI",
+      "côte d'ivoire":"CI", "nigeria":"NG", "luxembourg":"LU", "switzerland":"CH"
+    };
+    function flagEmoji(nat) {
+      const iso = COUNTRY_ISO[(nat || "").trim().toLowerCase()];
+      if (!iso) return "";
+      return iso.toUpperCase().replace(/./g, c =>
+        String.fromCodePoint(127397 + c.charCodeAt(0)));
+    }
+
     const roster = playerRows
       .filter(r => {
         /* GAS returns camelCase; fall back to column-name keys for safety */
@@ -974,11 +1078,13 @@ function dixonColes(allMatches, homeTeam, awayTeam, options) {
                 normClub(rClub) === normClub(FULL_NAME));
       })
       .map(r => ({
-        number: (r.number   || r["Number"]    || "").trim(),
-        name:   (r.name     || r["Name"]      || "").trim(),
-        short:  (r.short    || r["Shortname"] || "").replace(/^\[|\]$/g, "").trim(),
-        pos:    (r.position || r["Position"]  || "").trim(),
-        photo:  r.photo     || extractPhotoUrl(r["Photo"] || "")
+        number:      (r.number      || r["Number"]      || "").trim(),
+        name:        (r.name        || r["Name"]        || "").trim(),
+        short:       (r.short       || r["Shortname"]   || "").replace(/^\[|\]$/g, "").trim(),
+        pos:         (r.position    || r["Position"]    || "").trim(),
+        photo:       r.photo        || extractPhotoUrl(r["Photo"] || ""),
+        nationality: (r.nationality || r["Nationality"] || "").trim(),
+        age:         (r.age         || r["Age"]         || "").trim()
       }))
       .filter(p => p.name)
       .sort((a, b) => {
@@ -993,16 +1099,17 @@ function dixonColes(allMatches, homeTeam, awayTeam, options) {
     const kitsHTML = `
       <div class="bsf-club__kits">
         <div class="bsf-club__kit">
-          ${kitSVG(kitHome1, kitHome2, "Home")}
+          ${kitSVG(kitHome1, kitHome2, "Home", kitHomePattern)}
         </div>
         <div class="bsf-club__kit">
-          ${kitSVG(kitAway1, kitAway2, "Away")}
+          ${kitSVG(kitAway1, kitAway2, "Away", kitAwayPattern)}
         </div>
       </div>
       <p style="font-size:10px;color:var(--muted);margin-top:12px;">
         Kit colours are drawn from the sheet columns <strong>Kit Home Primary</strong>,
         <strong>Kit Home Secondary</strong>, <strong>Kit Away Primary</strong>,
-        <strong>Kit Away Secondary</strong>. Add hex values there to update automatically.
+        <strong>Kit Away Secondary</strong>. Pattern comes from <strong>Kit Home Pattern</strong> /
+        <strong>Kit Away Pattern</strong> — options: normal, hoops, stripes, sash.
       </p>`;
 
     /* Venue */
@@ -1019,29 +1126,62 @@ function dixonColes(allMatches, homeTeam, awayTeam, options) {
         </div>`
       : `<p style="font-size:11px;color:var(--muted);">Add a "Stadium" column to the clubs sheet to show venue info here.</p>`;
 
-    /* Roster */
-    const rosterHTML = roster.length
-      ? `<div class="bsf-club__roster">
-          ${roster.map(p => {
-            const displayName = p.short || p.name;
-            const posLabel    = POS_LABEL[p.pos.toUpperCase()] || p.pos || "";
-            return `
-            <div class="bsf-club__player">
-              ${p.photo
-                ? `<div class="bsf-club__player-photo-wrap">
-                     <img class="bsf-club__player-photo" src="${esc(p.photo)}" alt="${esc(displayName)}" loading="lazy">
-                   </div>`
-                : `<div class="bsf-club__player-photo-wrap bsf-club__player-photo--empty">
-                     ${p.number ? `<span class="bsf-club__player-number-large">${esc(p.number)}</span>` : ""}
-                   </div>`}
-              <div class="bsf-club__player-info">
-                ${p.number ? `<span class="bsf-club__player-num">${esc(p.number)}</span>` : ""}
-                <span class="bsf-club__player-name">${esc(displayName)}</span>
-                ${posLabel ? `<span class="bsf-club__player-pos">${esc(posLabel)}</span>` : ""}
-              </div>
-            </div>`;
-          }).join("")}
-         </div>`
+    /* ── Roster — grouped list (Coach / Keepers / Defenders / Midfielders / Forwards),
+       mirrors the standard "squad list" layout used by most football apps. ── */
+    function playerRowHTML(p) {
+      const displayName = p.short || p.name;
+      const posLabel     = POS_LABEL[p.pos.toUpperCase()] || p.pos || "";
+      const flag         = flagEmoji(p.nationality);
+      const photoHTML = p.photo
+        ? `<img class="bsf-club__roster-photo" src="${esc(p.photo)}" alt="${esc(displayName)}" loading="lazy">`
+        : `<div class="bsf-club__roster-photo bsf-club__roster-photo--empty"></div>`;
+      return `
+        <div class="bsf-club__roster-row">
+          ${photoHTML}
+          <div class="bsf-club__roster-main">
+            <div class="bsf-club__roster-name">
+              ${p.number ? `<span class="bsf-club__roster-num">${esc(p.number)}</span>` : ""}
+              ${esc(displayName)}
+            </div>
+            ${(flag || p.nationality) ? `
+              <div class="bsf-club__roster-nat">
+                ${flag ? `<span class="bsf-club__roster-flag">${flag}</span>` : ""}
+                ${esc(p.nationality)}
+              </div>` : (posLabel ? `<div class="bsf-club__roster-nat">${esc(posLabel)}</div>` : "")}
+          </div>
+          ${p.age ? `<div class="bsf-club__roster-age">${esc(p.age)}</div>` : ""}
+        </div>`;
+    }
+
+    function rosterGroupHTML(title, rows) {
+      if (!rows.length) return "";
+      return `
+        <div class="bsf-club__roster-group">
+          <div class="bsf-club__roster-group-head">
+            <span>${esc(title)}</span><span>${title === "Coach" ? "" : "Age"}</span>
+          </div>
+          ${rows.map(playerRowHTML).join("")}
+        </div>`;
+    }
+
+    const bySection = { "Keepers":[], "Defenders":[], "Midfielders":[], "Forwards":[] };
+    roster.forEach(p => {
+      const section = POS_SECTION[p.pos.toUpperCase()] || "Midfielders";
+      bySection[section].push(p);
+    });
+
+    /* Coach comes from the club's "Manager" column (clubs sheet), not the
+       Players sheet — shown as its own single-row section for consistency. */
+    const coachRows = manager ? [{ name: manager, short:"", number:"", pos:"", photo:"", nationality:"", age:"" }] : [];
+
+    const rosterHTML = roster.length || coachRows.length
+      ? [
+          rosterGroupHTML("Coach", coachRows),
+          rosterGroupHTML("Keepers", bySection["Keepers"]),
+          rosterGroupHTML("Defenders", bySection["Defenders"]),
+          rosterGroupHTML("Midfielders", bySection["Midfielders"]),
+          rosterGroupHTML("Forwards", bySection["Forwards"])
+        ].filter(Boolean).join("")
       : `<p style="font-size:11px;color:var(--muted);">No players found in the Players sheet for this club. Check that the Region and Club columns match exactly.</p>`;
 
     /* Bio */
