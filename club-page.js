@@ -1104,13 +1104,7 @@ function dixonColes(allMatches, homeTeam, awayTeam, options) {
         <div class="bsf-club__kit">
           ${kitSVG(kitAway1, kitAway2, "Away", kitAwayPattern)}
         </div>
-      </div>
-      <p style="font-size:10px;color:var(--muted);margin-top:12px;">
-        Kit colours are drawn from the sheet columns <strong>Kit Home Primary</strong>,
-        <strong>Kit Home Secondary</strong>, <strong>Kit Away Primary</strong>,
-        <strong>Kit Away Secondary</strong>. Pattern comes from <strong>Kit Home Pattern</strong> /
-        <strong>Kit Away Pattern</strong> — options: normal, hoops, stripes, sash.
-      </p>`;
+      </div>;
 
     /* Venue */
     const venueHTML = stadium
